@@ -1,6 +1,91 @@
-# ROMCraft
+# RomCraft Build System
 
-> Automated ROM building and distribution toolkit with integrated notifications and multi-platform upload support.
+An automated Android ROM building system featuring Telegram notifications, patch management, and multi-platform upload support.
+
+## Key Features
+- Real-time build status notifications via Telegram
+- Flexible patch management with directory mapping
+- Efficient ccache handling
+- Multi-platform ROM upload (SourceForge, PixelDrain, GoFile)
+- Advanced build monitoring and error reporting
+
+## Quick Start
+1. Clone the repository
+2. Copy `config.conf.example` to `config.conf`
+3. Configure settings:
+```bash
+# Essential Configuration
+TELEGRAM_BOT_TOKEN="your_bot_token"
+TELEGRAM_CHAT_ID="your_chat_id"
+ROM_DIR="/path/to/rom"
+DEVICE_CODENAME="your_device"
+ROM_MANIFEST_URL="rom_manifest_url"
+```
+
+## Core Components
+
+### Patch System
+Place patches in `patches/` and map in `config.conf`:
+```bash
+declare -A PATCH_MAPPING=(
+   ["patch1.patch"]="target/path1"
+   ["patch2.patch"]="target/path2"
+)
+```
+
+### Build Control
+Run with: `./build_rom.sh`
+
+./build_rom.sh
+```
+
+Options can be controlled via config.conf:
+- `BUILD_CLEAN`: Clean build
+- `ENABLE_CCACHE`: Use ccache
+- `ENABLE_SYNC`: Sync sources
+- `ENABLE_PATCHES`: Apply patches
+- `ENABLE_UPLOAD`: Upload ROM
+
+## Patch Management
+
+Place your patches in the `patches/` directory and map them in config.conf:
+```bash
+patches/
+├── hardware_interfaces.patch
+├── device_patch.patch
+└── kernel_patch.patch
+```
+
+Each patch needs an entry in `PATCH_MAPPING` pointing to its target directory.
+
+## Telegram Integration
+
+1. Create a bot using [@BotFather](https://t.me/botfather)
+2. Get chat ID using [@userinfobot](https://t.me/userinfobot)
+3. Configure in `config.conf`:
+   ```bash
+   TELEGRAM_BOT_TOKEN="123456789:ABCdefGHI..."
+   TELEGRAM_CHAT_ID="your_chat_id"
+   ```
+
+## Upload Support
+
+Supported platforms:
+- SourceForge
+- PixelDrain
+- GoFile
+
+Configure in `config.conf`:
+```bash
+ENABLE_UPLOAD="true"
+UPLOAD_TO="platform_name"
+```
+
+## Error Handling
+
+- Telegram send failures can be retried or skipped
+- Failed patches can be ignored with `IGNORE_PATCH_FAILURES="true"`
+- Build errors are reported with last 10 lines of log
 
 ## About the Name
 
@@ -52,18 +137,6 @@ ssh -i ~/.ssh/id_rsa your_username@frs.sourceforge.net
    - Navigate to API section
    - Generate new API key
    - Add to config.conf: `PIXELDRAIN_API_KEY="your_key"`
-
-## Usage
-
-Basic usage:
-```bash
-./build_rom.sh
-```
-
-With specific options example:
-```bash
-ENABLE_SYNC=true ENABLE_CCACHE=true ./build_rom.sh
-```
 
 ## Configuration Options
 
