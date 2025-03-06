@@ -283,20 +283,45 @@ build_rom() {
     local log_file="$ROM_DIR/build_log_$(date +%Y%m%d_%H%M%S).txt"
     send_telegram_message "📝 Build log: $log_file"
     
-    # Start build with logging
-    # Use process substitution to avoid pipe issues
-    make $BUILD_TARGET -j$(nproc --all) > >(tee "$log_file") 2>&1 &
-    build_pid=$!
+    # Start build with enhanced process protection
+    (
+        # Ignore hangup signals
+        trap "" SIGHUP
+        
+        # Start the build process
+        nohup nice -n 10 make $BUILD_TARGET -j$(nproc --all) > >(tee "$log_file") 2>&1 &
+        build_pid=$!
+        
+        # Detach process from terminal
+        disown $build_pid
+        
+        # Set process group and adjust priorities
+        setpgrp $build_pid
+        ionice -c 2 -n 7 -p $build_pid
+        
+        # Write PID to file for recovery
+        echo $build_pid > "$ROM_DIR/.build_pid"
+        
+        # Wait for build in background
+        wait $build_pid
+    ) &
+    main_build_pid=$!
+    disown $main_build_pid
     
-    # Start log monitoring in background
-    monitor_log "$log_file" "$build_pid" &
+    # Start log monitoring in background with similar protection
+    (
+        trap "" SIGHUP
+        monitor_log "$log_file" $build_pid
+    ) &
     monitor_pid=$!
+    disown $monitor_pid
     
     # Wait for build to complete
-    wait $build_pid
+    wait $main_build_pid
     build_status=$?
     
-    # Kill monitor process
+    # Cleanup
+    rm -f "$ROM_DIR/.build_pid"
     kill $monitor_pid 2>/dev/null
     
     # Check final status
