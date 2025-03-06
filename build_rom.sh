@@ -8,13 +8,147 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 source "$CONFIG_FILE"
 
+# Function to URL encode strings
+urlencode() {
+    local string="$1"
+    python3 -c "import urllib.parse; print(urllib.parse.quote('''$string'''))"
+}
+
+# Function to prompt user for retry
+prompt_retry() {
+    local message="$1"
+    echo -e "\n${message}"
+    echo "1) Retry sending message"
+    echo "2) Continue without message"
+    echo "3) Exit script"
+    read -p "Choose an option (1-3): " choice
+    case "$choice" in
+        1) return 0 ;;    # retry
+        2) return 2 ;;    # continue
+        *) return 1 ;;    # exit
+    esac
+}
+
+# Function to validate Telegram configuration
+validate_telegram_config() {
+    # Check if token is in correct format
+    if [[ ! "$TELEGRAM_BOT_TOKEN" =~ ^[0-9]+:[a-zA-Z0-9_-]+$ ]]; then
+        echo "Error: Invalid bot token format. Should be like '123456789:ABCdefGHI-JklMNOpqrsTUVwxyz'"
+        return 1
+    }
+
+    # Test bot token and chat ID
+    local test_response=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getChat" \
+        -d "chat_id=$TELEGRAM_CHAT_ID")
+    
+    if echo "$test_response" | grep -q "\"ok\":false"; then
+        echo "Error: Telegram configuration invalid!"
+        echo "Response: $test_response"
+        echo -e "\nPossible solutions:"
+        echo "1. Verify your bot token is correct"
+        echo "2. Make sure you've started a chat with the bot"
+        echo "3. For group chats, add the bot to the group"
+        echo "4. For group chats, make sure to use the correct group chat ID (should start with -)"
+        return 1
+    fi
+    return 0
+}
+
 # Function to send message to Telegram
 send_telegram_message() {
-    message="$1"
-    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-        -d chat_id="$TELEGRAM_CHAT_ID" \
-        -d text="$message" \
-        -d parse_mode="HTML"
+    # Skip if telegram is not configured properly
+    if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+        echo "Skipping Telegram notification (not configured)"
+        return 0
+    }
+    
+    # Validate config on first message
+    if [ -z "$TELEGRAM_VALIDATED" ]; then
+        if ! validate_telegram_config; then
+            prompt_result=$(prompt_retry "Telegram configuration validation failed. What would you like to do?")
+            case "$prompt_result" in
+                0) export TELEGRAM_VALIDATED=1 ;;  # Continue anyway
+                2) return 0 ;;                     # Skip Telegram
+                *) exit 1 ;;                       # Exit
+            esac
+        else
+            export TELEGRAM_VALIDATED=1
+        fi
+    fi
+    
+    message="$(urlencode "$1")"
+    local max_retries=3
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        echo "Attempting to send Telegram message (attempt $((retry_count + 1))/$max_retries)..."
+        
+        # Use verbose curl for debugging
+        response=$(curl -v -s -w "\n%{http_code}" -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            -d "text=$message" \
+            -d "parse_mode=HTML" 2>&1)
+        
+        http_code=$(echo "$response" | tail -n1)
+        api_response=$(echo "$response" | head -n-1)
+        
+        if [ "$http_code" = "200" ]; then
+            echo "Message sent successfully!"
+            return 0
+        else
+            echo "----------------------------------------"
+            echo "Error Details:"
+            echo "HTTP Code: $http_code"
+            echo "Bot Token (first 10 chars): ${TELEGRAM_BOT_TOKEN:0:10}..."
+            echo "Chat ID: $TELEGRAM_CHAT_ID"
+            echo "Response:"
+            echo "$api_response"
+            echo "----------------------------------------"
+            
+            # Check for specific error cases
+            case "$http_code" in
+                401)
+                    error_message="Authentication failed. Invalid bot token."
+                    ;;
+                400)
+                    error_message="Bad request. Check if chat_id is correct and message format is valid."
+                    ;;
+                403)
+                    error_message="Bot was blocked by the user or group."
+                    ;;
+                404)
+                    error_message="Bot token is invalid or chat not found."
+                    ;;
+                429)
+                    error_message="Too many requests. Rate limit exceeded."
+                    sleep 5  # Wait before retry
+                    ;;
+                *)
+                    error_message="Unknown error occurred (HTTP $http_code)"
+                    ;;
+            esac
+            
+            echo -e "\nError: $error_message"
+            prompt_result=$(prompt_retry "Failed to send message: $error_message\nResponse: $api_response")
+            case "$prompt_result" in
+                0) 
+                    retry_count=$((retry_count + 1))
+                    sleep 2  # Wait before retry
+                    ;;
+                2) 
+                    echo "Continuing without sending message..."
+                    return 0 
+                    ;;
+                *) 
+                    echo "Exiting due to user request"
+                    exit 1 
+                    ;;
+            esac
+        fi
+    done
+    
+    echo "Failed to send Telegram message after $max_retries attempts."
+    prompt_retry "Max retries exceeded. What would you like to do?"
 }
 
 # Function to check command status
