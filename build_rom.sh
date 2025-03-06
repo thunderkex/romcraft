@@ -35,7 +35,7 @@ validate_telegram_config() {
     if [[ ! "$TELEGRAM_BOT_TOKEN" =~ ^[0-9]+:[a-zA-Z0-9_-]+$ ]]; then
         echo "Error: Invalid bot token format. Should be like '123456789:ABCdefGHI-JklMNOpqrsTUVwxyz'"
         return 1
-    }
+    fi
 
     # Test bot token and chat ID
     local test_response=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getChat" \
@@ -54,13 +54,36 @@ validate_telegram_config() {
     return 0
 }
 
-# Function to send message to Telegram
+# Function to delete Telegram message with timeout
+delete_telegram_message() {
+    local message_id="$1"
+    timeout 5 curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteMessage" \
+        -d "chat_id=$TELEGRAM_CHAT_ID" \
+        -d "message_id=$message_id" >/dev/null 2>&1 || true
+}
+
+# Add message queue handling
+declare -A message_queue
+message_queue_index=0
+last_message_time=0
+
+# Function to handle rate limiting
+check_rate_limit() {
+    local current_time=$(date +%s)
+    local time_diff=$((current_time - last_message_time))
+    if [ $time_diff -lt 1 ]; then  # Minimum 1 second between messages
+        sleep 1
+    fi
+    last_message_time=$current_time
+}
+
+# Improved send_telegram_message function
 send_telegram_message() {
     # Skip if telegram is not configured properly
     if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
         echo "Skipping Telegram notification (not configured)"
         return 0
-    }
+    fi
     
     # Validate config on first message
     if [ -z "$TELEGRAM_VALIDATED" ]; then
@@ -80,11 +103,19 @@ send_telegram_message() {
     local max_retries=3
     local retry_count=0
     
+    # Add to message queue
+    message_queue[$message_queue_index]="$message"
+    local current_index=$message_queue_index
+    message_queue_index=$((message_queue_index + 1))
+    
+    # Rate limiting
+    check_rate_limit
+    
     while [ $retry_count -lt $max_retries ]; do
         echo "Attempting to send Telegram message (attempt $((retry_count + 1))/$max_retries)..."
         
-        # Use verbose curl for debugging
-        response=$(curl -v -s -w "\n%{http_code}" -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        # Use timeout for curl request
+        response=$(timeout 10 curl -s -w "\n%{http_code}" -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
             -d "text=$message" \
             -d "parse_mode=HTML" 2>&1)
@@ -96,23 +127,8 @@ send_telegram_message() {
             echo "Message sent successfully!"
             return 0
         else
-            echo "----------------------------------------"
-            echo "Error Details:"
-            echo "HTTP Code: $http_code"
-            echo "Bot Token (first 10 chars): ${TELEGRAM_BOT_TOKEN:0:10}..."
-            echo "Chat ID: $TELEGRAM_CHAT_ID"
-            echo "Response:"
-            echo "$api_response"
-            echo "----------------------------------------"
-            
-            # Check for specific error cases
+            # Handle error codes
             case "$http_code" in
-                401)
-                    error_message="Authentication failed. Invalid bot token."
-                    ;;
-                400)
-                    error_message="Bad request. Check if chat_id is correct and message format is valid."
-                    ;;
                 403)
                     error_message="Bot was blocked by the user or group."
                     ;;
@@ -158,7 +174,7 @@ check_status() {
     else
         send_telegram_message "❌ Error: $1 failed!"
         exit 1
-    }
+    fi
 }
 
 # Setup ccache if enabled
@@ -218,21 +234,27 @@ apply_patches() {
     done
 }
 
-# Log monitoring function
+# Function to safely write output
+safe_output() {
+    # Ignore broken pipe errors when writing output
+    (echo "$@") 2>/dev/null || true
+}
+
+# Modify monitor_log function
 monitor_log() {
     local log_file="$1"
     local pid="$2"
     local last_line=""
     local error_patterns=("FAILED:" "ERROR:" "fatal:" "failed." "error:")
     
-    while [ -d "/proc/$pid" ]; do
+    while kill -0 "$pid" 2>/dev/null; do
         if [ -f "$log_file" ]; then
-            current_line=$(tail -n 1 "$log_file")
+            current_line=$(tail -n 1 "$log_file" 2>/dev/null || true)
             if [ "$current_line" != "$last_line" ]; then
                 # Check for errors
                 for pattern in "${error_patterns[@]}"; do
-                    if echo "$current_line" | grep -qi "$pattern"; then
-                        send_telegram_message "⚠️ Potential error detected:\n$current_line"
+                    if echo "$current_line" | grep -qi "$pattern" 2>/dev/null; then
+                        send_telegram_message "⚠️ Potential error detected:\n$current_line" || true
                     fi
                 done
                 last_line="$current_line"
@@ -262,7 +284,8 @@ build_rom() {
     send_telegram_message "📝 Build log: $log_file"
     
     # Start build with logging
-    make $BUILD_TARGET -j$(nproc --all) 2>&1 | tee "$log_file" &
+    # Use process substitution to avoid pipe issues
+    make $BUILD_TARGET -j$(nproc --all) > >(tee "$log_file") 2>&1 &
     build_pid=$!
     
     # Start log monitoring in background
@@ -292,8 +315,10 @@ build_rom() {
         fi
     else
         # Send last 10 lines of log on failure
-        error_log=$(tail -n 10 "$log_file")
-        send_telegram_message "❌ Build failed!\n\nLast few lines:\n$error_log"
+        {
+            error_log=$(tail -n 10 "$log_file" 2>/dev/null)
+            send_telegram_message "❌ Build failed!\n\nLast few lines:\n$error_log" || true
+        } 2>/dev/null
         exit 1
     fi
 }
@@ -386,9 +411,10 @@ upload_rom() {
 cleanup() {
     local exit_code=$?
     if [ $exit_code -ne 0 ]; then
-        send_telegram_message "⚠️ Build process interrupted! Exit code: $exit_code"
+        send_telegram_message "⚠️ Build process interrupted! Exit code: $exit_code" || true
     fi
-    kill $(jobs -p) 2>/dev/null
+    # Kill background jobs more gracefully
+    jobs -p | xargs -r kill -TERM 2>/dev/null || true
     exit $exit_code
 }
 
