@@ -158,7 +158,7 @@ check_status() {
     else
         send_telegram_message "❌ Error: $1 failed!"
         exit 1
-    fi
+    }
 }
 
 # Setup ccache if enabled
@@ -185,15 +185,37 @@ sync_source() {
 
 # Apply patches
 apply_patches() {
-    if [ -d "$CUSTOM_PATCHES_DIR" ]; then
-        cd "$ROM_DIR"
-        for patch in "$CUSTOM_PATCHES_DIR"/*.patch; do
-            if [ -f "$patch" ]; then
-                git apply "$patch"
-                check_status "Applying patch $(basename $patch)"
-            fi
-        done
+    if [ ! -d "$CUSTOM_PATCHES_DIR" ]; then
+        send_telegram_message "⚠️ Patches directory not found: $CUSTOM_PATCHES_DIR"
+        return 1
     fi
+
+    # Loop through patch mapping
+    for patch_file in "${!PATCH_MAPPING[@]}"; do
+        patch_path="$CUSTOM_PATCHES_DIR/$patch_file"
+        target_path="$ROM_DIR/${PATCH_MAPPING[$patch_file]}"
+        
+        if [ ! -f "$patch_path" ]; then
+            send_telegram_message "⚠️ Patch file not found: $patch_file"
+            continue
+        fi
+        
+        if [ ! -d "$target_path" ]; then
+            send_telegram_message "⚠️ Target path not found: ${PATCH_MAPPING[$patch_file]}"
+            continue
+        fi
+        
+        cd "$target_path"
+        if git apply --check "$patch_path" &>/dev/null; then
+            git apply "$patch_path"
+            check_status "Applying patch $patch_file to ${PATCH_MAPPING[$patch_file]}"
+        else
+            send_telegram_message "❌ Patch $patch_file cannot be applied cleanly to ${PATCH_MAPPING[$patch_file]}"
+            if [ "$IGNORE_PATCH_FAILURES" != "true" ]; then
+                return 1
+            fi
+        fi
+    done
 }
 
 # Log monitoring function
