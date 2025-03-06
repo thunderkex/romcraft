@@ -57,24 +57,99 @@ validate_telegram_config() {
 # Function to delete Telegram message with timeout
 delete_telegram_message() {
     local message_id="$1"
-    timeout 5 curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteMessage" \
-        -d "chat_id=$TELEGRAM_CHAT_ID" \
-        -d "message_id=$message_id" >/dev/null 2>&1 || true
+    local max_retries=3
+    local retry_count=0
+    
+    # Skip if telegram is not configured
+    if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+        echo "Skipping message deletion (Telegram not configured)"
+        return 0
+    fi
+    
+    # Validate message ID
+    if [[ ! "$message_id" =~ ^[0-9]+$ ]]; then
+        echo "Invalid message ID format: $message_id"
+        return 1
+    fi
+    
+    # Rate limiting
+    check_rate_limit "delete_$message_id"
+    
+    while [ $retry_count -lt $max_retries ]; do
+        echo "Attempting to delete message $message_id (attempt $((retry_count + 1))/$max_retries)..."
+        
+        response=$(timeout 5 curl -s -w "\n%{http_code}" \
+            "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            -d "message_id=$message_id")
+            
+        http_code=$(echo "$response" | tail -n1)
+        api_response=$(echo "$response" | head -n-1)
+        
+        if [ "$http_code" = "200" ]; then
+            echo "Message $message_id deleted successfully"
+            return 0
+        else
+            case "$http_code" in
+                400) 
+                    echo "Message not found or already deleted"
+                    return 0
+                    ;;
+                403)
+                    echo "Bot lacks permission to delete messages"
+                    return 1
+                    ;;
+                429)
+                    echo "Rate limit exceeded, waiting..."
+                    sleep 3
+                    ;;
+                *)
+                    echo "Failed to delete message (HTTP $http_code)"
+                    ;;
+            esac
+            
+            retry_count=$((retry_count + 1))
+            [ $retry_count -lt $max_retries ] && sleep 2
+        fi
+    done
+    
+    echo "Failed to delete message after $max_retries attempts"
+    return 1
 }
 
 # Add message queue handling
 declare -A message_queue
+declare -A message_timestamps
 message_queue_index=0
 last_message_time=0
+last_message_content=""
+duplicate_delay=60  # Delay in seconds before allowing duplicate messages
 
 # Function to handle rate limiting
 check_rate_limit() {
     local current_time=$(date +%s)
     local time_diff=$((current_time - last_message_time))
-    if [ $time_diff -lt 1 ]; then  # Minimum 1 second between messages
+    
+    # Enforce minimum delay between messages
+    if [ $time_diff -lt 1 ]; then
         sleep 1
     fi
+    
+    # Check for duplicate message
+    if [ "$1" = "$last_message_content" ]; then
+        local last_sent=${message_timestamps["$1"]:-0}
+        local since_last=$((current_time - last_sent))
+        
+        if [ $since_last -lt $duplicate_delay ]; then
+            echo "Skipping duplicate message (sent ${since_last}s ago)"
+            return 1
+        fi
+    fi
+    
+    message_timestamps["$1"]=$current_time
+    last_message_content="$1"
     last_message_time=$current_time
+    return 0
 }
 
 # Improved send_telegram_message function
@@ -103,13 +178,15 @@ send_telegram_message() {
     local max_retries=3
     local retry_count=0
     
+    # Check rate limit and duplicates
+    if ! check_rate_limit "$1"; then
+        return 0
+    fi
+    
     # Add to message queue
     message_queue[$message_queue_index]="$message"
     local current_index=$message_queue_index
     message_queue_index=$((message_queue_index + 1))
-    
-    # Rate limiting
-    check_rate_limit
     
     while [ $retry_count -lt $max_retries ]; do
         echo "Attempting to send Telegram message (attempt $((retry_count + 1))/$max_retries)..."
@@ -125,6 +202,14 @@ send_telegram_message() {
         
         if [ "$http_code" = "200" ]; then
             echo "Message sent successfully!"
+            # Extract message ID from response
+            message_id=$(echo "$api_response" | jq -r '.result.message_id')
+            if [[ "$message_id" =~ ^[0-9]+$ ]]; then
+                (
+                    sleep 2
+                    delete_telegram_message "$message_id"
+                ) &
+            fi
             return 0
         else
             # Handle error codes
@@ -266,84 +351,78 @@ monitor_log() {
 
 # Build ROM with monitoring
 build_rom() {
-    cd "$ROM_DIR"
-    . build/envsetup.sh
+    cd "$ROM_DIR" || { send_telegram_message "❌ Failed to change to ROM directory!"; exit 1; }
     
-    # Custom lunch command
-    lunch "${DEVICE_CODENAME}_${BUILD_TYPE}"
+    # Source build environment
+    if ! source build/envsetup.sh 2>/dev/null; then
+        send_telegram_message "❌ Failed to source build environment!"
+        exit 1
+    fi
     
-    # Optional clean
+    # Custom lunch command with validation
+    if ! lunch "${DEVICE_CODENAME}_${BUILD_TYPE}" 2>/dev/null; then
+        send_telegram_message "❌ Failed to configure build target!"
+        exit 1
+    fi
+    
+    # Optional clean with error checking
     if [ "$BUILD_CLEAN" = "true" ]; then
-        make clean
-        make clobber
+        make clean && make clobber
         check_status "Clean build"
     fi
     
-    # Create log file
-    local log_file="$ROM_DIR/build_log_$(date +%Y%m%d_%H%M%S).txt"
-    send_telegram_message "📝 Build log: $log_file"
+    # Create log file with timestamp
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local log_file="$ROM_DIR/build_log_${timestamp}.txt"
+    local pid_file="$ROM_DIR/.build_pid"
     
-    # Start build with enhanced process protection
-    (
-        # Ignore hangup signals
-        trap "" SIGHUP
-        
-        # Start the build process
-        nohup nice -n 10 make $BUILD_TARGET -j$(nproc --all) > >(tee "$log_file") 2>&1 &
-        build_pid=$!
-        
-        # Detach process from terminal
-        disown $build_pid
-        
-        # Set process group and adjust priorities
-        setpgrp $build_pid
-        ionice -c 2 -n 7 -p $build_pid
-        
-        # Write PID to file for recovery
-        echo $build_pid > "$ROM_DIR/.build_pid"
-        
-        # Wait for build in background
-        wait $build_pid
-    ) &
-    main_build_pid=$!
-    disown $main_build_pid
+    send_telegram_message "🔄 Starting build process\n📝 Log: $(basename "$log_file")"
     
-    # Start log monitoring in background with similar protection
+    # Start build process with resource management
+    {
+        # Set process priority and I/O priority
+        exec nice -n 10 ionice -c 2 -n 7 \
+        make "$BUILD_TARGET" -j$(nproc --all) 2>&1 | tee "$log_file"
+    } &
+    
+    build_pid=$!
+    echo $build_pid > "$pid_file"
+    
+    # Monitor build process
     (
-        trap "" SIGHUP
-        monitor_log "$log_file" $build_pid
+        trap 'exit 0' SIGTERM
+        while kill -0 $build_pid 2>/dev/null; do
+            if [ -f "$log_file" ]; then
+                tail -n 1 "$log_file" 2>/dev/null | grep -iE 'error:|failed:|fatal:' && \
+                    send_telegram_message "⚠️ Build warning detected!"
+            fi
+            sleep 10
+        done
     ) &
     monitor_pid=$!
-    disown $monitor_pid
     
-    # Wait for build to complete
-    wait $main_build_pid
+    # Wait for build completion
+    wait $build_pid
     build_status=$?
     
     # Cleanup
-    rm -f "$ROM_DIR/.build_pid"
     kill $monitor_pid 2>/dev/null
+    rm -f "$pid_file"
     
-    # Check final status
     if [ $build_status -eq 0 ]; then
-        send_telegram_message "✅ ROM build ($BUILD_TARGET) completed successfully!"
-        
-        # Send build size information
-        if [ -f "$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip" ]; then
-            size=$(du -h "$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip" | cut -f1)
-            send_telegram_message "📦 Build size: $size"
+        local rom_file="$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip"
+        if [ -f "$rom_file" ]; then
+            local size=$(du -h "$rom_file" | cut -f1)
+            local md5sum=$(md5sum "$rom_file" | cut -d' ' -f1)
+            send_telegram_message "✅ Build successful!\n📦 Size: $size\n🔒 MD5: $md5sum"
             
-            # Upload if enabled
-            if [ "$ENABLE_UPLOAD" = "true" ]; then
-                upload_rom
-            fi
+            [ "$ENABLE_UPLOAD" = "true" ] && upload_rom
+        else
+            send_telegram_message "⚠️ Build completed but ROM file not found!"
+            exit 1
         fi
     else
-        # Send last 10 lines of log on failure
-        {
-            error_log=$(tail -n 10 "$log_file" 2>/dev/null)
-            send_telegram_message "❌ Build failed!\n\nLast few lines:\n$error_log" || true
-        } 2>/dev/null
+        send_telegram_message "❌ Build failed!\n$(tail -n 5 "$log_file" 2>/dev/null)"
         exit 1
     fi
 }
