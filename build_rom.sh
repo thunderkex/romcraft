@@ -474,7 +474,7 @@ build_rom() {
         if [ -f "$log_file" ]; then
             local current_time=$(date +%s)
             local elapsed=$((current_time - start_time))
-            local last_lines=$(tail -n 3 "$log_file" 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+            local last_lines=$(tail -n 3 "$log_file" 2>&1 | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
             
             # Update status message
             local status_text="🏗️ ROM Build In Progress\n"
@@ -507,11 +507,23 @@ build_rom() {
     local final_text="🏗️ ROM Build "
     if [ $build_status -eq 0 ]; then
         final_text+="Completed ✅\n"
+        # Add ROM file details if build succeeded
+        local rom_file="$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip"
+        if [ -f "$rom_file" ]; then
+            local file_size=$(du -h "$rom_file" | cut -f1)
+            local file_name=$(basename "$rom_file")
+            final_text+="📦 File: $file_name\n"
+            final_text+="💾 Size: $file_size\n"
+        fi
     else
         final_text+="Failed ❌\n"
     fi
     final_text+="⏱️ Total time: $(printf '%dh:%dm:%ds' $((final_time/3600)) $((final_time%3600/60)) $((final_time%60)))\n"
-    final_text+="❌ Total errors: $error_count"
+    final_text+="❌ Total errors: $error_count\n"
+    final_text+="📱 Device: $DEVICE_CODENAME\n"
+    final_text+="🔄 Type: $BUILD_TYPE\n"
+    [ -n "$BUILD_TARGET" ] && final_text+="🎯 Target: $BUILD_TARGET\n"
+    final_text+="📅 Date: $(date +'%Y-%m-%d %H:%M:%S')"
     
     edit_telegram_message "$status_message_id" "$(urlencode "$final_text")"
     
@@ -532,18 +544,21 @@ upload_to_sourceforge() {
     scp -i ~/.ssh/id_rsa "$file" \
         "$SOURCEFORGE_USER@frs.sourceforge.net:/home/frs/project/$SOURCEFORGE_PROJECT/" 
     
-    check_status "SourceForge upload"
-    
-    # Generate download link
-    local download_url="https://sourceforge.net/projects/$SOURCEFORGE_PROJECT/files/$filename"
-    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ Upload complete!\n📥 Download: $download_url")"
+    if [ $? -eq 0 ]; then
+        local download_url="https://sourceforge.net/projects/$SOURCEFORGE_PROJECT/files/$filename"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ SourceForge upload complete!\n📥 Download: $download_url")"
+        return 0
+    else
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ SourceForge upload failed!")"
+        return 1
+    fi
 }
 
 upload_to_pixeldrain() {
     local file="$1"
     local filename=$(basename "$file")
     
-    send_telegram_message "📤 Uploading to PixelDrain: $filename"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "📤 Uploading to PixelDrain: $filename")"
     
     response=$(curl -H "Authorization: Bearer $PIXELDRAIN_API_KEY" \
         -F "file=@$file" \
@@ -552,9 +567,10 @@ upload_to_pixeldrain() {
     id=$(echo $response | jq -r '.id')
     if [ ! -z "$id" ]; then
         local download_url="https://pixeldrain.com/u/$id"
-        send_telegram_message "✅ Upload complete!\n📥 Download: $download_url"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ PixelDrain upload complete!\n📥 Download: $download_url")"
+        return 0
     else
-        send_telegram_message "❌ PixelDrain upload failed!"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ PixelDrain upload failed!")"
         return 1
     fi
 }
@@ -563,7 +579,7 @@ upload_to_gofile() {
     local file="$1"
     local filename=$(basename "$file")
     
-    send_telegram_message "📤 Uploading to GoFile: $filename"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "📤 Uploading to GoFile: $filename")"
     
     # Get best server
     server=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
@@ -573,9 +589,10 @@ upload_to_gofile() {
     
     download_url=$(echo $response | jq -r '.data.downloadPage')
     if [ ! -z "$download_url" ]; then
-        send_telegram_message "✅ Upload complete!\n📥 Download: $download_url"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ GoFile upload complete!\n📥 Download: $download_url")"
+        return 0
     else
-        send_telegram_message "❌ GoFile upload failed!"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ GoFile upload failed!")"
         return 1
     fi
 }
@@ -586,7 +603,7 @@ upload_to_all_platforms() {
     local success=0
     local failed=()
 
-    send_telegram_message "🚀 Starting multi-platform upload..."
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "🚀 Starting multi-platform upload...")"
 
     # SourceForge
     if [ ! -z "$SOURCEFORGE_API_KEY" ]; then
@@ -613,15 +630,26 @@ upload_to_all_platforms() {
         failed+=("GoFile")
     fi
 
-    # Send summary
+    # Update status message with summary
     local total_platforms=3
     local failed_str=""
     if [ ${#failed[@]} -gt 0 ]; then
         failed_str="\n❌ Failed platforms: ${failed[*]}"
     fi
     
-    send_telegram_message "📊 Upload Summary:\n✅ Successful: $success/$total_platforms$failed_str"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "📊 Upload Summary:\n✅ Successful: $success/$total_platforms$failed_str")"
     
+    # After upload summary, append links to final text
+    local final_text=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getMessage" \
+        -d "chat_id=$TELEGRAM_CHAT_ID" \
+        -d "message_id=$STATUS_MESSAGE_ID" | jq -r '.result.text')
+    
+    final_text+="\n\n📥 Download Links:"
+    [ -n "$download_url" ] && final_text+="\n• GoFile: $download_url"
+    [ -n "$sourceforge_url" ] && final_text+="\n• SourceForge: $sourceforge_url"
+    [ -n "$pixeldrain_url" ] && final_text+="\n• PixelDrain: $pixeldrain_url"
+    
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$final_text")"
     return $([ $success -gt 0 ])
 }
 
@@ -630,7 +658,7 @@ upload_rom() {
     local rom_file="$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip"
     
     if [ ! -f "$rom_file" ]; then
-        send_telegram_message "❌ ROM file not found for upload!"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ ROM file not found for upload!")"
         return 1
     fi
     
@@ -648,7 +676,7 @@ upload_rom() {
             upload_to_gofile "$rom_file"
             ;;
         *)
-            send_telegram_message "❌ Invalid upload platform specified!"
+            edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ Invalid upload platform specified!")"
             return 1
             ;;
     esac
@@ -663,6 +691,25 @@ cleanup() {
     # Kill background jobs more gracefully
     jobs -p | xargs -r kill -TERM 2>/dev/null || true
     exit $exit_code
+}
+
+# Add new function for sending inline keyboard message
+send_keyboard_message() {
+    local text="$1"
+    local keyboard='{
+        "inline_keyboard": [
+            [
+                {"text": "🔌 Shutdown Server", "callback_data": "shutdown"},
+                {"text": "⏯️ Keep Running", "callback_data": "continue"}
+            ]
+        ]
+    }'
+    
+    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -d "chat_id=$TELEGRAM_CHAT_ID" \
+        -d "text=$(urlencode "$text")" \
+        -d "reply_markup=$keyboard" \
+        -d "parse_mode=HTML"
 }
 
 # Main execution
@@ -695,6 +742,31 @@ main() {
     }
     
     edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✨ ROM build and upload process completed!\n\n🛠️ Built with ROMCraft")"
+    
+    # Send shutdown option message
+    local shutdown_text="🤖 Build completed successfully!\n\nWould you like to shutdown the server?"
+    send_keyboard_message "$shutdown_text"
+    
+    # Wait for response (60 seconds timeout)
+    local start_time=$(date +%s)
+    while [ $(($(date +%s) - start_time)) -lt 60 ]; do
+        response=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" \
+            -d "offset=-1" \
+            -d "timeout=1")
+        
+        if echo "$response" | grep -q "callback_data"; then
+            if echo "$response" | grep -q '"callback_data":"shutdown"'; then
+                send_telegram_message "🔌 Initiating server shutdown..."
+                sleep 2
+                sudo shutdown -h now
+                break
+            elif echo "$response" | grep -q '"callback_data":"continue"'; then
+                send_telegram_message "⏯️ Server will continue running"
+                break
+            fi
+        fi
+        sleep 1
+    done
 }
 
 # Execute main function
