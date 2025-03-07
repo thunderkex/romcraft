@@ -54,15 +54,16 @@ validate_telegram_config() {
     return 0
 }
 
-# Function to delete Telegram message with timeout
-delete_telegram_message() {
+# Function to edit Telegram message with timeout
+edit_telegram_message() {
     local message_id="$1"
+    local new_text="$2"
     local max_retries=3
     local retry_count=0
     
     # Skip if telegram is not configured
     if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-        echo "Skipping message deletion (Telegram not configured)"
+        echo "Skipping message edit (Telegram not configured)"
         return 0
     fi
     
@@ -73,30 +74,32 @@ delete_telegram_message() {
     fi
     
     # Rate limiting
-    check_rate_limit "delete_$message_id"
+    check_rate_limit "edit_$message_id"
     
     while [ $retry_count -lt $max_retries ]; do
-        echo "Attempting to delete message $message_id (attempt $((retry_count + 1))/$max_retries)..."
+        echo "Attempting to edit message $message_id (attempt $((retry_count + 1))/$max_retries)..."
         
         response=$(timeout 5 curl -s -w "\n%{http_code}" \
-            "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteMessage" \
+            "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "message_id=$message_id")
+            -d "message_id=$message_id" \
+            -d "text=$new_text" \
+            -d "parse_mode=HTML")
             
         http_code=$(echo "$response" | tail -n1)
         api_response=$(echo "$response" | head -n-1)
         
         if [ "$http_code" = "200" ]; then
-            echo "Message $message_id deleted successfully"
+            echo "Message $message_id edited successfully"
             return 0
         else
             case "$http_code" in
                 400) 
-                    echo "Message not found or already deleted"
+                    echo "Message not found or no changes in content"
                     return 0
                     ;;
                 403)
-                    echo "Bot lacks permission to delete messages"
+                    echo "Bot lacks permission to edit messages"
                     return 1
                     ;;
                 429)
@@ -104,7 +107,7 @@ delete_telegram_message() {
                     sleep 3
                     ;;
                 *)
-                    echo "Failed to delete message (HTTP $http_code)"
+                    echo "Failed to edit message (HTTP $http_code)"
                     ;;
             esac
             
@@ -113,7 +116,7 @@ delete_telegram_message() {
         fi
     done
     
-    echo "Failed to delete message after $max_retries attempts"
+    echo "Failed to edit message after $max_retries attempts"
     return 1
 }
 
@@ -207,7 +210,9 @@ send_telegram_message() {
             if [[ "$message_id" =~ ^[0-9]+$ ]]; then
                 (
                     sleep 2
-                    delete_telegram_message "$message_id"
+                    # Update message with a checkmark to indicate completion
+                    new_text="$message ✓"
+                    edit_telegram_message "$message_id" "$(urlencode "$new_text")"
                 ) &
             fi
             return 0
@@ -255,9 +260,9 @@ send_telegram_message() {
 # Function to check command status
 check_status() {
     if [ $? -eq 0 ]; then
-        send_telegram_message "✅ $1 completed successfully!"
+        [ -n "$STATUS_MESSAGE_ID" ] && edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ $1 completed successfully!")"
     else
-        send_telegram_message "❌ Error: $1 failed!"
+        [ -n "$STATUS_MESSAGE_ID" ] && edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ Error: $1 failed!")"
         exit 1
     fi
 }
@@ -268,7 +273,7 @@ setup_ccache() {
         export USE_CCACHE=1
         export CCACHE_EXEC=/usr/bin/ccache
         ccache -M "$CCACHE_SIZE"
-        send_telegram_message "✅ CCACHE configured with size $CCACHE_SIZE"
+        [ -n "$STATUS_MESSAGE_ID" ] && edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ CCACHE configured with size $CCACHE_SIZE")"
     fi
 }
 
@@ -336,65 +341,48 @@ monitor_log() {
     local current_stage=""
     local error_count=0
     local warning_count=0
+    local status_message_id=""
+    local building_since=""
     
-    # Enhanced error patterns with context
-    local error_patterns=(
-        "FAILED:"
-        "ERROR:"
-        "fatal:"
-        "failed."
-        "error:"
-        "undefined reference to"
-        "ninja: build stopped"
-        "No rule to make target"
-    )
-    
-    # Build stage patterns
-    local stage_patterns=(
-        "Starting build with ninja"
-        "PLATFORM_VERSION_CODENAME="
-        "Target system fs image:"
-        "Install system fs image:"
-        "Package Complete:"
-    )
-    
+    # Initial status message
+    response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -d "chat_id=$TELEGRAM_CHAT_ID" \
+        -d "text=$(urlencode "🔄 Building ROM...\n⏱️ Started at: $(date +'%H:%M:%S')")" \
+        -d "parse_mode=HTML")
+    status_message_id=$(echo "$response" | jq -r '.result.message_id')
+
     while kill -0 "$pid" 2>/dev/null; do
         if [ -f "$log_file" ]; then
             current_time=$(date +%s)
+            elapsed=$((current_time - start_time))
             
             # Get last few lines for context
             mapfile -t last_lines < <(tail -n 5 "$log_file" 2>/dev/null || true)
             current_line="${last_lines[-1]}"
             
             if [ "$current_line" != "$last_line" ]; then
-                # Detect build stage
-                for pattern in "${stage_patterns[@]}"; do
-                    if echo "$current_line" | grep -q "$pattern"; then
-                        new_stage=$(echo "$current_line" | cut -d' ' -f1-3)
-                        if [ "$new_stage" != "$current_stage" ]; then
-                            current_stage="$new_stage"
-                            elapsed=$((current_time - start_time))
-                            send_telegram_message "🔄 Build Stage: $current_stage\n⏱️ Time elapsed: ${elapsed}s"
-                        fi
-                    fi
-                done
+                # Build status message
+                status_text="🔄 Building ROM...\n"
+                status_text+="⏱️ Running for: ${elapsed}s\n"
+                status_text+="❌ Errors: $error_count\n"
+                status_text+="⚠️ Warnings: $warning_count\n"
                 
-                # Check for errors with context
+                if [ -n "$current_stage" ]; then
+                    status_text+="\n📍 Current stage: $current_stage"
+                fi
+                
+                # Update status message instead of sending new one
+                edit_telegram_message "$status_message_id" "$(urlencode "$status_text")"
+                
+                # Only send new message for errors
                 for pattern in "${error_patterns[@]}"; do
                     if echo "${last_lines[*]}" | grep -qi "$pattern"; then
                         error_count=$((error_count + 1))
                         context=$(printf '%s\n' "${last_lines[@]}")
-                        send_telegram_message "⚠️ Build issue detected (#$error_count):\n<pre>$context</pre>" || true
+                        send_telegram_message "⚠️ Build issue detected (#$error_count):\n<pre>$context</pre>"
                         break
                     fi
                 done
-                
-                # Send periodic progress updates
-                if [ $((current_time - last_update)) -ge 300 ]; then
-                    elapsed=$((current_time - start_time))
-                    send_telegram_message "📊 Build Status:\n⏱️ Time: ${elapsed}s\n❌ Errors: $error_count\n⚠️ Warnings: $warning_count" || true
-                    last_update=$current_time
-                fi
                 
                 last_line="$current_line"
             fi
@@ -402,16 +390,19 @@ monitor_log() {
         sleep 2
     done
     
-    # Send final statistics
-    elapsed=$(($(date +%s) - start_time))
-    send_telegram_message "📈 Build Monitor Summary:\n⏱️ Duration: ${elapsed}s\n❌ Errors: $error_count\n⚠️ Warnings: $warning_count"
+    # Final status update
+    status_text="✨ Build completed!\n"
+    status_text+="⏱️ Duration: ${elapsed}s\n"
+    status_text+="❌ Errors: $error_count\n"
+    status_text+="⚠️ Warnings: $warning_count"
+    edit_telegram_message "$status_message_id" "$(urlencode "$status_text")"
 }
 
 # Build ROM with monitoring
 build_rom() {
     cd "$ROM_DIR" || { send_telegram_message "❌ Failed to change to ROM directory!"; exit 1; }
     
-    # Source build environment
+    # Source build environment and setup
     if ! source build/envsetup.sh 2>/dev/null; then
         send_telegram_message "❌ Failed to source build environment!"
         exit 1
@@ -430,7 +421,7 @@ build_rom() {
         fi
     fi
     
-    # Optional clean with error checking
+    # Optional clean
     if [ "$BUILD_CLEAN" = "true" ]; then
         make clean && make clobber
         check_status "Clean build"
@@ -439,65 +430,75 @@ build_rom() {
     # Create log file with timestamp
     local timestamp=$(date +%Y%m%d_%H%M%S)
     local log_file="$ROM_DIR/build_log_${timestamp}.txt"
-    local pid_file="$ROM_DIR/.build_pid"
-    local last_message_file="$ROM_DIR/.last_message"
+    local start_time=$(date +%s)
+    local error_count=0
     
-    send_telegram_message "🔄 Starting build process\n📝 Log: $(basename "$log_file")"
+    # Send initial status message
+    local status_text="🏗️ ROM Build Started\n"
+    status_text+="⏱️ Started: $(date +'%H:%M:%S')\n"
+    status_text+="📱 Device: $DEVICE_CODENAME\n"
+    status_text+="🔄 Status: Initializing..."
     
-    # Start build process with resource management
+    local status_response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -d "chat_id=$TELEGRAM_CHAT_ID" \
+        -d "text=$(urlencode "$status_text")" \
+        -d "parse_mode=HTML")
+    local status_message_id=$(echo "$status_response" | jq -r '.result.message_id')
+    
+    # Start build process
     {
-        # Set process priority and I/O priority
-        exec nice -n 10 ionice -c 2 -n 7 \
-        eval "${CUSTOM_BUILD_COMMAND:-m "$BUILD_TARGET" -j$(nproc --all)}" 2>&1 | tee "$log_file"
+        ${CUSTOM_BUILD_COMMAND:-m "$BUILD_TARGET" -j$(nproc --all)} 2>&1 | tee "$log_file"
     } &
     
     build_pid=$!
-    echo $build_pid > "$pid_file"
     
     # Monitor build process
-    (
-        trap 'exit 0' SIGTERM
-        while kill -0 $build_pid 2>/dev/null; do
-            if [ -f "$log_file" ]; then
-                current_line=$(tail -n 1 "$log_file" 2>/dev/null)
-                # Store last message for reference
-                if [ -n "$current_line" ]; then
-                    echo "$current_line" > "$last_message_file"
-                fi
-                
-                if echo "$current_line" | grep -iE 'error:|failed:|fatal:'; then
-                    send_telegram_message "⚠️ Build warning detected!\nLast message: $(cat "$last_message_file")"
-                fi
-            fi
-            sleep 10
-        done
-    ) &
-    monitor_pid=$!
-    
-    # Wait for build completion
-    wait $build_pid
-    build_status=$?
-    
-    # Cleanup
-    kill $monitor_pid 2>/dev/null
-    rm -f "$pid_file" "$last_message_file"
-    
-    if [ $build_status -eq 0 ]; then
-        local rom_file="$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip"
-        if [ -f "$rom_file" ]; then
-            local size=$(du -h "$rom_file" | cut -f1)
-            local md5sum=$(md5sum "$rom_file" | cut -d' ' -f1)
-            send_telegram_message "✅ Build successful!\n📦 Size: $size\n🔒 MD5: $md5sum"
+    while kill -0 $build_pid 2>/dev/null; do
+        if [ -f "$log_file" ]; then
+            local current_time=$(date +%s)
+            local elapsed=$((current_time - start_time))
+            local last_lines=$(tail -n 3 "$log_file" 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
             
-            [ "$ENABLE_UPLOAD" = "true" ] && upload_rom
-        else
-            send_telegram_message "⚠️ Build completed but ROM file not found!"
-            exit 1
+            # Update status message
+            local status_text="🏗️ ROM Build In Progress\n"
+            status_text+="⏱️ Runtime: $(printf '%dh:%dm:%ds' $((elapsed/3600)) $((elapsed%3600/60)) $((elapsed%60)))\n"
+            status_text+="❌ Errors: $error_count\n"
+            status_text+="\n📝 Recent output:\n<pre>$last_lines</pre>"
+            
+            # Try to edit message, on failure recreate it
+            if ! edit_telegram_message "$status_message_id" "$(urlencode "$status_text")"; then
+                local new_response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+                    -d "chat_id=$TELEGRAM_CHAT_ID" \
+                    -d "text=$(urlencode "$status_text")" \
+                    -d "parse_mode=HTML")
+                status_message_id=$(echo "$new_response" | jq -r '.result.message_id')
+            fi
+            
+            # Check for errors without sending additional messages
+            if echo "$last_lines" | grep -qiE 'error:|failed:|fatal:'; then
+                error_count=$((error_count + 1))
+            fi
         fi
+        sleep 15
+    done
+    
+    # Wait for build completion and update final status
+    wait $build_pid
+    local build_status=$?
+    local final_time=$(($(date +%s) - start_time))
+    
+    local final_text="🏗️ ROM Build "
+    if [ $build_status -eq 0 ]; then
+        final_text+="Completed ✅\n"
     else
-        send_telegram_message "❌ Build failed!\n$(tail -n 5 "$log_file" 2>/dev/null)"
-        exit 1
+        final_text+="Failed ❌\n"
     fi
+    final_text+="⏱️ Total time: $(printf '%dh:%dm:%ds' $((final_time/3600)) $((final_time%3600/60)) $((final_time%60)))\n"
+    final_text+="❌ Total errors: $error_count"
+    
+    edit_telegram_message "$status_message_id" "$(urlencode "$final_text")"
+    
+    [ $build_status -eq 0 ] || exit 1
 }
 
 # Upload functions for different platforms
@@ -505,7 +506,7 @@ upload_to_sourceforge() {
     local file="$1"
     local filename=$(basename "$file")
     
-    send_telegram_message "📤 Uploading to SourceForge: $filename"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "📤 Uploading to SourceForge: $filename")"
     
     scp -i ~/.ssh/id_rsa "$file" \
         "$SOURCEFORGE_USER@frs.sourceforge.net:/home/frs/project/$SOURCEFORGE_PROJECT/" 
@@ -514,7 +515,7 @@ upload_to_sourceforge() {
     
     # Generate download link
     local download_url="https://sourceforge.net/projects/$SOURCEFORGE_PROJECT/files/$filename"
-    send_telegram_message "✅ Upload complete!\n📥 Download: $download_url"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ Upload complete!\n📥 Download: $download_url")"
 }
 
 upload_to_pixeldrain() {
@@ -648,29 +649,35 @@ main() {
     # Set cleanup handler
     trap cleanup EXIT INT TERM
     
-    send_telegram_message "🚀 Starting ROM build process..."
+    # Create initial status message and store ID globally
+    local initial_text="🚀 ROM Build Process\n⏱️ Started: $(date +'%H:%M:%S')\n📱 Device: $DEVICE_CODENAME"
+    local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -d "chat_id=$TELEGRAM_CHAT_ID" \
+        -d "text=$(urlencode "$initial_text")" \
+        -d "parse_mode=HTML")
+    export STATUS_MESSAGE_ID=$(echo "$response" | jq -r '.result.message_id')
     
     if [ "$ENABLE_CCACHE" = "true" ]; then
         setup_ccache
     else
-        send_telegram_message "ℹ️ Skipping ccache setup (disabled in config)"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$initial_text\nℹ️ Skipping ccache setup")"
     fi
     
     if [ "$ENABLE_SYNC" = "true" ]; then
         sync_source
     else
-        send_telegram_message "ℹ️ Skipping source sync (disabled in config)"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$initial_text\nℹ️ Skipping source sync")"
     fi
     
     if [ "$ENABLE_PATCHES" = "true" ]; then
         apply_patches
     else
-        send_telegram_message "ℹ️ Skipping patches (disabled in config)"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$initial_text\nℹ️ Skipping patches")"
     fi
     
     build_rom
     
-    send_telegram_message "✨ ROM build process completed!"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✨ ROM build process completed!")"
 }
 
 # Execute main function
