@@ -36,6 +36,11 @@ TELEGRAM_CHAT_ID="your_chat_id"
 ROM_DIR="/path/to/rom"
 DEVICE_CODENAME="your_device"
 ROM_MANIFEST_URL="rom_manifest_url"
+
+# Custom build and lunch commands (optional)
+CUSTOM_BUILD_COMMAND="mka bacon -j16"
+CUSTOM_LUNCH_COMMAND="lunch lineage_device-userdebug" 
+
 ```
 
 ---

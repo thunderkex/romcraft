@@ -259,7 +259,7 @@ check_status() {
     else
         send_telegram_message "❌ Error: $1 failed!"
         exit 1
-    }
+    fi
 }
 
 # Setup ccache if enabled
@@ -418,9 +418,16 @@ build_rom() {
     fi
     
     # Custom lunch command with validation
-    if ! lunch "${DEVICE_CODENAME}_${BUILD_TYPE}" 2>/dev/null; then
-        send_telegram_message "❌ Failed to configure build target!"
-        exit 1
+    if [ -n "$CUSTOM_LUNCH_COMMAND" ]; then
+        if ! eval "$CUSTOM_LUNCH_COMMAND"; then
+            send_telegram_message "❌ Failed to configure build target!"
+            exit 1
+        fi
+    else
+        if ! lunch "${DEVICE_CODENAME}_${BUILD_TYPE}" 2>/dev/null; then
+            send_telegram_message "❌ Failed to configure build target!"
+            exit 1
+        fi
     fi
     
     # Optional clean with error checking
@@ -433,6 +440,7 @@ build_rom() {
     local timestamp=$(date +%Y%m%d_%H%M%S)
     local log_file="$ROM_DIR/build_log_${timestamp}.txt"
     local pid_file="$ROM_DIR/.build_pid"
+    local last_message_file="$ROM_DIR/.last_message"
     
     send_telegram_message "🔄 Starting build process\n📝 Log: $(basename "$log_file")"
     
@@ -440,7 +448,7 @@ build_rom() {
     {
         # Set process priority and I/O priority
         exec nice -n 10 ionice -c 2 -n 7 \
-        make "$BUILD_TARGET" -j$(nproc --all) 2>&1 | tee "$log_file"
+        eval "${CUSTOM_BUILD_COMMAND:-m "$BUILD_TARGET" -j$(nproc --all)}" 2>&1 | tee "$log_file"
     } &
     
     build_pid=$!
@@ -451,8 +459,15 @@ build_rom() {
         trap 'exit 0' SIGTERM
         while kill -0 $build_pid 2>/dev/null; do
             if [ -f "$log_file" ]; then
-                tail -n 1 "$log_file" 2>/dev/null | grep -iE 'error:|failed:|fatal:' && \
-                    send_telegram_message "⚠️ Build warning detected!"
+                current_line=$(tail -n 1 "$log_file" 2>/dev/null)
+                # Store last message for reference
+                if [ -n "$current_line" ]; then
+                    echo "$current_line" > "$last_message_file"
+                fi
+                
+                if echo "$current_line" | grep -iE 'error:|failed:|fatal:'; then
+                    send_telegram_message "⚠️ Build warning detected!\nLast message: $(cat "$last_message_file")"
+                fi
             fi
             sleep 10
         done
@@ -465,7 +480,7 @@ build_rom() {
     
     # Cleanup
     kill $monitor_pid 2>/dev/null
-    rm -f "$pid_file"
+    rm -f "$pid_file" "$last_message_file"
     
     if [ $build_status -eq 0 ]; then
         local rom_file="$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip"
