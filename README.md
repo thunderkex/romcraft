@@ -1,15 +1,31 @@
-# RomCraft Build System
+# 🛠️ RomCraft Build System
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Platform](https://img.shields.io/badge/platform-Linux-blue.svg)](https://www.linux.org/)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
 
 An automated Android ROM building system featuring Telegram notifications, patch management, and multi-platform upload support.
 
-## Key Features
+## 📑 Table of Contents
+- [Key Features](#key-features)
+- [Quick Start](#quick-start)
+- [Core Components](#core-components)
+- [Patch Management](#patch-management)
+- [Telegram Integration](#telegram-integration)
+- [Upload Support](#upload-support)
+- [Configuration](#configuration)
+- [Common Issues](#common-issues)
+
+---
+
+## ✨ Key Features
 - Real-time build status notifications via Telegram
 - Flexible patch management with directory mapping
 - Efficient ccache handling
 - Multi-platform ROM upload (SourceForge, PixelDrain, GoFile)
 - Advanced build monitoring and error reporting
 
-## Quick Start
+## 🚀 Quick Start
 1. Clone the repository
 2. Copy `config.conf.example` to `config.conf`
 3. Configure settings:
@@ -22,9 +38,11 @@ DEVICE_CODENAME="your_device"
 ROM_MANIFEST_URL="rom_manifest_url"
 ```
 
-## Core Components
+---
 
-### Patch System
+## 🧩 Core Components
+
+### 📁 Patch System
 Place patches in `patches/` and map in `config.conf`:
 ```bash
 declare -A PATCH_MAPPING=(
@@ -33,11 +51,10 @@ declare -A PATCH_MAPPING=(
 )
 ```
 
-### Build Control
+### 🔨 Build Control
 Run with: `./build_rom.sh`
 
 ./build_rom.sh
-```
 
 Options can be controlled via config.conf:
 - `BUILD_CLEAN`: Clean build
@@ -46,7 +63,9 @@ Options can be controlled via config.conf:
 - `ENABLE_PATCHES`: Apply patches
 - `ENABLE_UPLOAD`: Upload ROM
 
-## Patch Management
+---
+
+## 🛠️ Patch Management
 
 Place your patches in the `patches/` directory and map them in config.conf:
 ```bash
@@ -58,7 +77,9 @@ patches/
 
 Each patch needs an entry in `PATCH_MAPPING` pointing to its target directory.
 
-## Telegram Integration
+---
+
+## 💬 Telegram Integration
 
 1. Create a bot using [@BotFather](https://t.me/botfather)
 2. Get chat ID using [@userinfobot](https://t.me/userinfobot)
@@ -68,12 +89,20 @@ Each patch needs an entry in `PATCH_MAPPING` pointing to its target directory.
    TELEGRAM_CHAT_ID="your_chat_id"
    ```
 
-## Upload Support
+---
 
-Supported platforms:
-- SourceForge
-- PixelDrain
-- GoFile
+## ☁️ Upload Support
+
+<details>
+<summary>Supported Platforms</summary>
+
+| Platform | Features | Requirements |
+|----------|----------|--------------|
+| SourceForge | SSH upload, direct links | SSH key |
+| PixelDrain | Fast upload, API support | API key |
+| GoFile | No account needed, temporary | None |
+
+</details>
 
 Configure in `config.conf`:
 ```bash
@@ -81,24 +110,49 @@ ENABLE_UPLOAD="true"
 UPLOAD_TO="platform_name"
 ```
 
-## Error Handling
+---
+
+## ⚠️ Error Handling
 
 - Telegram send failures can be retried or skipped
 - Failed patches can be ignored with `IGNORE_PATCH_FAILURES="true"`
 - Build errors are reported with last 10 lines of log
 
-## About the Name
+---
 
-ROMCraft represents:
-- **ROM**: Custom ROM building focus
-- **Craft**: Professional crafting/building process
-- The combination implies a toolset for crafting ROMs professionally
+## 🔧 Configuration Options
+
+<details>
+<summary>Build Settings</summary>
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `ENABLE_CCACHE` | Enable compiler cache | `true` |
+| `ENABLE_SYNC` | Sync source code | `true` |
+| `ENABLE_PATCHES` | Apply custom patches | `true` |
+| `ENABLE_UPLOAD` | Upload built ROM | `true` |
+| `BUILD_CLEAN` | Clean build | `false` |
+
+</details>
 
 ## Configuration
 
 1. Edit `config.conf` with your settings
 
-## Prerequisites
+---
+
+## 📋 Prerequisites
+
+<details>
+<summary>Required Packages</summary>
+
+```bash
+# Essential packages
+sudo apt install git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386
+sudo apt install libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip jq
+```
+
+</details>
 
 - Linux build environment
 - Telegram Bot Token and Chat ID
@@ -138,21 +192,6 @@ ssh -i ~/.ssh/id_rsa your_username@frs.sourceforge.net
    - Generate new API key
    - Add to config.conf: `PIXELDRAIN_API_KEY="your_key"`
 
-## Configuration Options
-
-### Build Control
-- `ENABLE_CCACHE`: Enable/disable ccache
-- `ENABLE_SYNC`: Enable/disable source sync
-- `ENABLE_PATCHES`: Enable/disable patch applying
-- `ENABLE_UPLOAD`: Enable/disable file upload
-- `BUILD_CLEAN`: Enable/disable clean build
-
-### Upload Options
-- `UPLOAD_TO`: Choose upload platform
-  - "sourceforge"
-  - "pixeldrain"
-  - "gofile"
-
 ## Directory Structure
 ```
 setup/
@@ -181,6 +220,8 @@ setup/
    - Send message to [@userinfobot](https://t.me/userinfobot)
    - Add ID to config: `TELEGRAM_CHAT_ID="your_id"`
 
-## License
+---
 
-This project is open source and available under the MIT License.
+## 📝 License
+
+This project is open source and available under the [MIT License](LICENSE).
