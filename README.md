@@ -55,22 +55,31 @@ CUSTOM_LUNCH_COMMAND="lunch lineage_device-userdebug"
 ## 🔄 Build Process Overview
 
 ```mermaid
-graph TD;
-    A[Start Build] -->|Initialize| B[Environment Setup];
-    B -->|Check| C[Dependencies];
-    C -->|Setup| D[CCACHE];
-    D -->|Begin| E[Source Sync];
-    E -->|Check| F[Local Patches];
-    F -->|Apply| G[Patch Management];
-    G -->|Configure| H[Build Environment];
-    H -->|Execute| I[Build ROM];
-    I -->|Verify| J[Build Output];
-    J -->|If Successful| K[Upload ROM];
-    K -->|Send| L[Telegram Notification];
+flowchart TD
+   A[Start Build] -->|Initialize| B[Environment Setup]
+   B -->|Check| C[Dependencies]
+   C -->|Setup| D[CCACHE]
+   D -->|Begin| E[Source Sync]
+   E -->|Check| F[Local Patches]
+   F -->|Apply| G[Patch Management]
+   G -->|Configure| H[Build Environment]
+   H -->|Execute| I[Build ROM]
+   I -->|Verify| J[Build Output]
+   J -->|If Successful| K[Upload ROM]
+   K -->|Send| L[Telegram Notification]
 
-    style A fill:#f9f,stroke:#333,stroke-width:2px;
-    style I fill:#bbf,stroke:#333,stroke-width:2px;
-    style L fill:#bfb,stroke:#333,stroke-width:2px;
+   style A fill:#2196F3,stroke:#1976D2,stroke-width:2px,color:#fff
+   style B fill:#4CAF50,stroke:#388E3C,stroke-width:2px,color:#fff
+   style C fill:#9C27B0,stroke:#7B1FA2,stroke-width:2px,color:#fff
+   style D fill:#FF9800,stroke:#F57C00,stroke-width:2px,color:#fff
+   style E fill:#E91E63,stroke:#C2185B,stroke-width:2px,color:#fff
+   style F fill:#673AB7,stroke:#512DA8,stroke-width:2px,color:#fff
+   style G fill:#009688,stroke:#00796B,stroke-width:2px,color:#fff
+   style H fill:#FFC107,stroke:#FFA000,stroke-width:2px,color:#fff
+   style I fill:#795548,stroke:#5D4037,stroke-width:2px,color:#fff
+   style J fill:#607D8B,stroke:#455A64,stroke-width:2px,color:#fff
+   style K fill:#3F51B5,stroke:#303F9F,stroke-width:2px,color:#fff
+   style L fill:#F44336,stroke:#D32F2F,stroke-width:2px,color:#fff
 ```
 
 ## 📊 System Requirements
