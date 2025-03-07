@@ -9,20 +9,21 @@
 An automated Android ROM building system featuring Telegram notifications, patch management, and multi-platform upload support.
 
 ## 📑 Table of Contents
-- [Key Features](#key-features)
-- [Quick Start](#quick-start)
-- [System Requirements](#system-requirements)
-- [Core Components](#core-components)
-- [Patch Management](#patch-management)
-- [Telegram Integration](#telegram-integration)
-- [Upload Support](#upload-support)
-- [Build Status Indicators](#build-status-indicators)
-- [Advanced Usage](#advanced-usage)
-- [Contributing](#contributing)
-- [Performance Tips](#performance-tips)
-- [Credits](#credits)
-- [Configuration](#configuration)
-- [Common Issues](#common-issues)
+- [Key Features](#-key-features)
+- [Quick Start](#-quick-start)
+- [System Requirements](#-system-requirements)
+- [Core Components](#-core-components)
+- [Patch Management](#️-patch-management)
+- [Telegram Integration](#-telegram-integration)
+- [Upload Support](#️-upload-support)
+- [Build Status Indicators](#-build-status-indicators)
+- [Advanced Usage](#-advanced-usage)
+- [Contributing](#-contributing)
+- [Performance Tips](#-performance-tips)
+- [Credits](#-credits)
+- [Configuration](#-configuration)
+- [Docker Support](#-docker-support)
+- [Common Issues](#-common-issues)
 
 ---
 
