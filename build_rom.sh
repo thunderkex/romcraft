@@ -650,7 +650,6 @@ cleanup() {
 
 # Main execution
 main() {
-    # Set cleanup handler
     trap cleanup EXIT INT TERM
     
     # Create initial status message and store ID globally
@@ -660,7 +659,8 @@ main() {
     initial_text+="📋 Build Configuration:\n"
     initial_text+="• CCACHE: $([ "$ENABLE_CCACHE" = "true" ] && echo "✅ Enabled" || echo "⏭️ Skipped")\n"
     initial_text+="• Source Sync: $([ "$ENABLE_SYNC" = "true" ] && echo "✅ Enabled" || echo "⏭️ Skipped")\n"
-    initial_text+="• Patches: $([ "$ENABLE_PATCHES" = "true" ] && echo "✅ Enabled" || echo "⏭️ Skipped")"
+    initial_text+="• Patches: $([ "$ENABLE_PATCHES" = "true" ] && echo "✅ Enabled" || echo "⏭️ Skipped")\n\n"
+    initial_text+="🛠️ Built with ROMCraft"
     
     local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
         -d "chat_id=$TELEGRAM_CHAT_ID" \
@@ -673,11 +673,11 @@ main() {
     [ "$ENABLE_PATCHES" = "true" ] && apply_patches
     
     build_rom || {
-        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ Build or upload process failed!")"
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ Build or upload process failed!\n\n🛠️ Built with ROMCraft")"
         exit 1
     }
     
-    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✨ ROM build and upload process completed!")"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✨ ROM build and upload process completed!\n\n🛠️ Built with ROMCraft")"
 }
 
 # Execute main function
