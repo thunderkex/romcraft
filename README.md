@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Linux-blue.svg)](https://www.linux.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
-
+![GitHub stars](https://img.shields.io/github/stars/thunderkex/romcraft?style=social)
 An automated Android ROM building system featuring Telegram notifications, patch management, and multi-platform upload support.
 
 ## 📑 Table of Contents

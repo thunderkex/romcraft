@@ -498,6 +498,10 @@ build_rom() {
     
     edit_telegram_message "$status_message_id" "$(urlencode "$final_text")"
     
+    if [ $build_status -eq 0 ] && [ "$ENABLE_UPLOAD" = "true" ]; then
+        upload_rom || return 1
+    fi
+    
     [ $build_status -eq 0 ] || exit 1
 }
 
@@ -650,34 +654,30 @@ main() {
     trap cleanup EXIT INT TERM
     
     # Create initial status message and store ID globally
-    local initial_text="🚀 ROM Build Process\n⏱️ Started: $(date +'%H:%M:%S')\n📱 Device: $DEVICE_CODENAME"
+    local initial_text="🚀 ROM Build Process\n"
+    initial_text+="⏱️ Started: $(date +'%H:%M:%S')\n"
+    initial_text+="📱 Device: $DEVICE_CODENAME\n\n"
+    initial_text+="📋 Build Configuration:\n"
+    initial_text+="• CCACHE: $([ "$ENABLE_CCACHE" = "true" ] && echo "✅ Enabled" || echo "⏭️ Skipped")\n"
+    initial_text+="• Source Sync: $([ "$ENABLE_SYNC" = "true" ] && echo "✅ Enabled" || echo "⏭️ Skipped")\n"
+    initial_text+="• Patches: $([ "$ENABLE_PATCHES" = "true" ] && echo "✅ Enabled" || echo "⏭️ Skipped")"
+    
     local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
         -d "chat_id=$TELEGRAM_CHAT_ID" \
         -d "text=$(urlencode "$initial_text")" \
         -d "parse_mode=HTML")
     export STATUS_MESSAGE_ID=$(echo "$response" | jq -r '.result.message_id')
     
-    if [ "$ENABLE_CCACHE" = "true" ]; then
-        setup_ccache
-    else
-        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$initial_text\nℹ️ Skipping ccache setup")"
-    fi
+    [ "$ENABLE_CCACHE" = "true" ] && setup_ccache
+    [ "$ENABLE_SYNC" = "true" ] && sync_source
+    [ "$ENABLE_PATCHES" = "true" ] && apply_patches
     
-    if [ "$ENABLE_SYNC" = "true" ]; then
-        sync_source
-    else
-        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$initial_text\nℹ️ Skipping source sync")"
-    fi
+    build_rom || {
+        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "❌ Build or upload process failed!")"
+        exit 1
+    }
     
-    if [ "$ENABLE_PATCHES" = "true" ]; then
-        apply_patches
-    else
-        edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$initial_text\nℹ️ Skipping patches")"
-    fi
-    
-    build_rom
-    
-    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✨ ROM build process completed!")"
+    edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✨ ROM build and upload process completed!")"
 }
 
 # Execute main function
