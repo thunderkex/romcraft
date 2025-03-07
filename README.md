@@ -75,8 +75,9 @@ An automated Android ROM building system featuring Telegram notifications, patch
 Place patches in `patches/` and map in `config.conf`:
 ```bash
 declare -A PATCH_MAPPING=(
-   ["patch1.patch"]="target/path1"
-   ["patch2.patch"]="target/path2"
+["hardware_interfaces.patch"]="hardware/lineage/interfaces"
+["device_patch.patch"]="device/vendor/device"
+["kernel_patch.patch"]="kernel/vendor/device"
 )
 ```
 
@@ -315,5 +316,5 @@ This project is open source and available under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-Made with ❤️ for the Android ROM community
+Made with ❤️ for the Android community
 </p>
