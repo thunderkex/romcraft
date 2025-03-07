@@ -319,34 +319,92 @@ apply_patches() {
     done
 }
 
-# Function to safely write output
+# Function to safely write output with multiline support
 safe_output() {
-    # Ignore broken pipe errors when writing output
-    (echo "$@") 2>/dev/null || true
+    while IFS= read -r line || [ -n "$line" ]; do
+        echo "$line" 2>/dev/null || true
+    done <<< "$@"
 }
 
-# Modify monitor_log function
+# Enhanced monitor_log function
 monitor_log() {
     local log_file="$1"
     local pid="$2"
     local last_line=""
-    local error_patterns=("FAILED:" "ERROR:" "fatal:" "failed." "error:")
+    local start_time=$(date +%s)
+    local last_update=0
+    local current_stage=""
+    local error_count=0
+    local warning_count=0
+    
+    # Enhanced error patterns with context
+    local error_patterns=(
+        "FAILED:"
+        "ERROR:"
+        "fatal:"
+        "failed."
+        "error:"
+        "undefined reference to"
+        "ninja: build stopped"
+        "No rule to make target"
+    )
+    
+    # Build stage patterns
+    local stage_patterns=(
+        "Starting build with ninja"
+        "PLATFORM_VERSION_CODENAME="
+        "Target system fs image:"
+        "Install system fs image:"
+        "Package Complete:"
+    )
     
     while kill -0 "$pid" 2>/dev/null; do
         if [ -f "$log_file" ]; then
-            current_line=$(tail -n 1 "$log_file" 2>/dev/null || true)
+            current_time=$(date +%s)
+            
+            # Get last few lines for context
+            mapfile -t last_lines < <(tail -n 5 "$log_file" 2>/dev/null || true)
+            current_line="${last_lines[-1]}"
+            
             if [ "$current_line" != "$last_line" ]; then
-                # Check for errors
-                for pattern in "${error_patterns[@]}"; do
-                    if echo "$current_line" | grep -qi "$pattern" 2>/dev/null; then
-                        send_telegram_message "⚠️ Potential error detected:\n$current_line" || true
+                # Detect build stage
+                for pattern in "${stage_patterns[@]}"; do
+                    if echo "$current_line" | grep -q "$pattern"; then
+                        new_stage=$(echo "$current_line" | cut -d' ' -f1-3)
+                        if [ "$new_stage" != "$current_stage" ]; then
+                            current_stage="$new_stage"
+                            elapsed=$((current_time - start_time))
+                            send_telegram_message "🔄 Build Stage: $current_stage\n⏱️ Time elapsed: ${elapsed}s"
+                        fi
                     fi
                 done
+                
+                # Check for errors with context
+                for pattern in "${error_patterns[@]}"; do
+                    if echo "${last_lines[*]}" | grep -qi "$pattern"; then
+                        error_count=$((error_count + 1))
+                        context=$(printf '%s\n' "${last_lines[@]}")
+                        send_telegram_message "⚠️ Build issue detected (#$error_count):\n<pre>$context</pre>" || true
+                        break
+                    fi
+                done
+                
+                # Send periodic progress updates
+                if [ $((current_time - last_update)) -ge 300 ]; then
+                    elapsed=$((current_time - start_time))
+                    send_telegram_message "📊 Build Status:\n⏱️ Time: ${elapsed}s\n❌ Errors: $error_count\n⚠️ Warnings: $warning_count" || true
+                    last_update=$current_time
+                fi
+                
                 last_line="$current_line"
             fi
         fi
-        sleep 5
+        sleep 2
     done
+    
+    # Send final statistics
+    elapsed=$(($(date +%s) - start_time))
+    send_telegram_message "📈 Build Monitor Summary:\n⏱️ Duration: ${elapsed}s\n❌ Errors: $error_count\n⚠️ Warnings: $warning_count"
 }
 
 # Build ROM with monitoring
