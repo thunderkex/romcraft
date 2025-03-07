@@ -18,11 +18,10 @@ An automated Android ROM building system featuring Telegram notifications, patch
 - [Upload Support](#️-upload-support)
 - [Build Status Indicators](#-build-status-indicators)
 - [Advanced Usage](#-advanced-usage)
-- [Contributing](#-contributing)
 - [Performance Tips](#-performance-tips)
-- [Credits](#-credits)
 - [Configuration](#-configuration)
 - [Docker Support](#-docker-support)
+- [Contributing](#-contributing)
 - [Common Issues](#-common-issues)
 
 ---
@@ -173,15 +172,6 @@ BUILD_FLAGS=(
 
 ---
 
-## 🤝 Contributing
-
-We welcome contributions! Please follow these steps:
-1. Fork the repository
-2. Create a feature branch
-3. Submit a Pull Request
-
----
-
 ## 📈 Performance Tips
 
 - Enable ccache for faster rebuilds
@@ -286,6 +276,15 @@ setup/
 ├── config.conf     # Your configuration
 └── patches/        # Custom patches (optional)
 ```
+
+## 🤝 Contributing
+
+We welcome contributions! Please follow these steps:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a Pull Request
+
+---
 
 ## Common Issues
 
