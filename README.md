@@ -3,13 +3,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Linux-blue.svg)](https://www.linux.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
-![GitHub stars](https://img.shields.io/github/stars/thunderkex/romcraft?style=social)
+[![GitHub stars](https://img.shields.io/github/stars/thunderkex/romcraft?style=social)](https://github.com/thunderkex/romcraft/stargazers)
+[![Docker Support](https://img.shields.io/badge/Docker-Support-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+
 An automated Android ROM building system featuring Telegram notifications, patch management, and multi-platform upload support.
 
 ## 📑 Table of Contents
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
-- [Build Process Overview](#build-process-overview)
 - [System Requirements](#system-requirements)
 - [Core Components](#core-components)
 - [Patch Management](#patch-management)
@@ -33,54 +34,28 @@ An automated Android ROM building system featuring Telegram notifications, patch
 - Advanced build monitoring and error reporting
 
 ## 🚀 Quick Start
-1. Clone the repository
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/thunderkex/romcraft.git
+   cd romcraft
+   ```
 2. Copy `config.conf.example` to `config.conf`
-3. Configure settings:
-```bash
-# Essential Configuration
-TELEGRAM_BOT_TOKEN="your_bot_token"
-TELEGRAM_CHAT_ID="your_chat_id"
-ROM_DIR="/path/to/rom"
-DEVICE_CODENAME="your_device"
-ROM_MANIFEST_URL="rom_manifest_url"
-
-# Custom build and lunch commands (optional)
-CUSTOM_BUILD_COMMAND="mka bacon -j16"
-CUSTOM_LUNCH_COMMAND="lunch lineage_device-userdebug" 
-
-```
-
----
-
-## 🔄 Build Process Overview
-
-```mermaid
-flowchart TD
-   A[Start Build] -->|Initialize| B[Environment Setup]
-   B -->|Check| C[Dependencies]
-   C -->|Setup| D[CCACHE]
-   D -->|Begin| E[Source Sync]
-   E -->|Check| F[Local Patches]
-   F -->|Apply| G[Patch Management]
-   G -->|Configure| H[Build Environment]
-   H -->|Execute| I[Build ROM]
-   I -->|Verify| J[Build Output]
-   J -->|If Successful| K[Upload ROM]
-   K -->|Send| L[Telegram Notification]
-
-   style A fill:#2196F3,stroke:#1976D2,stroke-width:2px,color:#fff
-   style B fill:#4CAF50,stroke:#388E3C,stroke-width:2px,color:#fff
-   style C fill:#9C27B0,stroke:#7B1FA2,stroke-width:2px,color:#fff
-   style D fill:#FF9800,stroke:#F57C00,stroke-width:2px,color:#fff
-   style E fill:#E91E63,stroke:#C2185B,stroke-width:2px,color:#fff
-   style F fill:#673AB7,stroke:#512DA8,stroke-width:2px,color:#fff
-   style G fill:#009688,stroke:#00796B,stroke-width:2px,color:#fff
-   style H fill:#FFC107,stroke:#FFA000,stroke-width:2px,color:#fff
-   style I fill:#795548,stroke:#5D4037,stroke-width:2px,color:#fff
-   style J fill:#607D8B,stroke:#455A64,stroke-width:2px,color:#fff
-   style K fill:#3F51B5,stroke:#303F9F,stroke-width:2px,color:#fff
-   style L fill:#F44336,stroke:#D32F2F,stroke-width:2px,color:#fff
-```
+   ```bash
+   cp config.conf.example config.conf
+   ```
+3. Configure essential settings:
+   ```bash
+   # Essential Configuration
+   TELEGRAM_BOT_TOKEN="your_bot_token"
+   TELEGRAM_CHAT_ID="your_chat_id"
+   ROM_DIR="/path/to/rom"
+   DEVICE_CODENAME="your_device"
+   ROM_MANIFEST_URL="rom_manifest_url"
+   ```
+4. Run the build:
+   ```bash
+   ./build_rom.sh
+   ```
 
 ## 📊 System Requirements
 
@@ -232,6 +207,22 @@ We welcome contributions! Please follow these steps:
 ## Configuration
 
 1. Edit `config.conf` with your settings
+
+---
+
+## 🐋 Docker Support
+Run RomCraft in a containerized environment:
+
+```bash
+# Build the Docker image
+docker build -t romcraft .
+
+# Run with volume mounts
+docker run -v /path/to/rom:/rom \
+          -v /path/to/ccache:/ccache \
+          -v $(pwd)/config.conf:/app/config.conf \
+          romcraft
+```
 
 ---
 
