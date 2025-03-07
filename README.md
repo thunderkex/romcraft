@@ -9,10 +9,17 @@ An automated Android ROM building system featuring Telegram notifications, patch
 ## 📑 Table of Contents
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
+- [Build Process Overview](#build-process-overview)
+- [System Requirements](#system-requirements)
 - [Core Components](#core-components)
 - [Patch Management](#patch-management)
 - [Telegram Integration](#telegram-integration)
 - [Upload Support](#upload-support)
+- [Build Status Indicators](#build-status-indicators)
+- [Advanced Usage](#advanced-usage)
+- [Contributing](#contributing)
+- [Performance Tips](#performance-tips)
+- [Credits](#credits)
 - [Configuration](#configuration)
 - [Common Issues](#common-issues)
 
@@ -42,6 +49,38 @@ CUSTOM_BUILD_COMMAND="mka bacon -j16"
 CUSTOM_LUNCH_COMMAND="lunch lineage_device-userdebug" 
 
 ```
+
+---
+
+## 🔄 Build Process Overview
+
+```mermaid
+graph TD;
+    A[Start Build] -->|Initialize| B[Environment Setup];
+    B -->|Check| C[Dependencies];
+    C -->|Setup| D[CCACHE];
+    D -->|Begin| E[Source Sync];
+    E -->|Check| F[Local Patches];
+    F -->|Apply| G[Patch Management];
+    G -->|Configure| H[Build Environment];
+    H -->|Execute| I[Build ROM];
+    I -->|Verify| J[Build Output];
+    J -->|If Successful| K[Upload ROM];
+    K -->|Send| L[Telegram Notification];
+
+    style A fill:#f9f,stroke:#333,stroke-width:2px;
+    style I fill:#bbf,stroke:#333,stroke-width:2px;
+    style L fill:#bfb,stroke:#333,stroke-width:2px;
+```
+
+## 📊 System Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| CPU       | 4 cores | 8+ cores    |
+| RAM       | 16GB    | 32GB+       |
+| Storage   | 200GB   | 500GB+      |
+| Internet  | 10Mbps  | 50Mbps+     |
 
 ---
 
@@ -117,11 +156,52 @@ UPLOAD_TO="platform_name"
 
 ---
 
-## ⚠️ Error Handling
+## 🚦 Build Status Indicators
 
-- Telegram send failures can be retried or skipped
-- Failed patches can be ignored with `IGNORE_PATCH_FAILURES="true"`
-- Build errors are reported with last 10 lines of log
+| Status | Description |
+|--------|-------------|
+| ✅ Success | Build completed successfully |
+| ⚠️ Warning | Build completed with warnings |
+| ❌ Error | Build failed |
+| 🔄 In Progress | Build is running |
+| 📤 Uploading | ROM upload in progress |
+
+---
+
+## 🔍 Advanced Usage
+
+### Custom Build Flags
+```bash
+BUILD_FLAGS=(
+    "TARGET_BUILD_VARIANT=userdebug"
+    "TARGET_USES_CUSTOM_FLAGS=true"
+    "WITH_GMS=false"
+)
+```
+
+### Patch Application Order
+1. Device-specific patches
+2. Framework patches
+3. Vendor patches
+4. Custom patches
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please follow these steps:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a Pull Request
+
+---
+
+## 📈 Performance Tips
+
+- Enable ccache for faster rebuilds
+- Use SSD storage for build directory
+- Configure optimal thread count (`-j` flag)
+- Keep ROM sources on local storage
 
 ---
 
@@ -230,3 +310,9 @@ setup/
 ## 📝 License
 
 This project is open source and available under the [MIT License](LICENSE).
+
+---
+
+<p align="center">
+Made with ❤️ for the Android ROM community
+</p>
