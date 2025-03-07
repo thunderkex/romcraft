@@ -259,7 +259,7 @@ check_status() {
     else
         send_telegram_message "❌ Error: $1 failed!"
         exit 1
-    fi
+    }
 }
 
 # Setup ccache if enabled
@@ -543,7 +543,52 @@ upload_to_gofile() {
     fi
 }
 
-# Upload ROM file
+# Function to upload to all supported platforms
+upload_to_all_platforms() {
+    local file="$1"
+    local success=0
+    local failed=()
+
+    send_telegram_message "🚀 Starting multi-platform upload..."
+
+    # SourceForge
+    if [ ! -z "$SOURCEFORGE_API_KEY" ]; then
+        if upload_to_sourceforge "$file"; then
+            ((success++))
+        else
+            failed+=("SourceForge")
+        fi
+    fi
+
+    # PixelDrain
+    if [ ! -z "$PIXELDRAIN_API_KEY" ]; then
+        if upload_to_pixeldrain "$file"; then
+            ((success++))
+        else
+            failed+=("PixelDrain")
+        fi
+    fi
+
+    # GoFile (no credentials needed)
+    if upload_to_gofile "$file"; then
+        ((success++))
+    else
+        failed+=("GoFile")
+    fi
+
+    # Send summary
+    local total_platforms=3
+    local failed_str=""
+    if [ ${#failed[@]} -gt 0 ]; then
+        failed_str="\n❌ Failed platforms: ${failed[*]}"
+    fi
+    
+    send_telegram_message "📊 Upload Summary:\n✅ Successful: $success/$total_platforms$failed_str"
+    
+    return $([ $success -gt 0 ])
+}
+
+# Modify existing upload_rom function
 upload_rom() {
     local rom_file="$ROM_DIR/out/target/product/$DEVICE_CODENAME/$BUILD_TARGET.zip"
     
@@ -553,6 +598,9 @@ upload_rom() {
     fi
     
     case "$UPLOAD_TO" in
+        "all")
+            upload_to_all_platforms "$rom_file"
+            ;;
         "sourceforge")
             upload_to_sourceforge "$rom_file"
             ;;
