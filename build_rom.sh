@@ -273,7 +273,6 @@ setup_ccache() {
         export USE_CCACHE=1
         export CCACHE_EXEC=/usr/bin/ccache
         ccache -M "$CCACHE_SIZE"
-        [ -n "$STATUS_MESSAGE_ID" ] && edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "✅ CCACHE configured with size $CCACHE_SIZE")"
     fi
 }
 
@@ -296,32 +295,50 @@ apply_patches() {
         return 1
     fi
 
+    local messages=""
+    local has_errors=false
+
     # Loop through patch mapping
     for patch_file in "${!PATCH_MAPPING[@]}"; do
         patch_path="$CUSTOM_PATCHES_DIR/$patch_file"
         target_path="$ROM_DIR/${PATCH_MAPPING[$patch_file]}"
         
         if [ ! -f "$patch_path" ]; then
-            send_telegram_message "⚠️ Patch file not found: $patch_file"
+            messages+="\n⚠️ Patch file not found: $patch_file"
             continue
         fi
         
         if [ ! -d "$target_path" ]; then
-            send_telegram_message "⚠️ Target path not found: ${PATCH_MAPPING[$patch_file]}"
+            messages+="\n⚠️ Target path not found: ${PATCH_MAPPING[$patch_file]}"
             continue
         fi
         
         cd "$target_path"
         if git apply --check "$patch_path" &>/dev/null; then
             git apply "$patch_path"
-            check_status "Applying patch $patch_file to ${PATCH_MAPPING[$patch_file]}"
+            if [ $? -eq 0 ]; then
+                messages+="\n✅ Applied: $patch_file -> ${PATCH_MAPPING[$patch_file]}"
+            else
+                messages+="\n❌ Failed to apply: $patch_file"
+                has_errors=true
+            fi
         else
-            send_telegram_message "❌ Patch $patch_file cannot be applied cleanly to ${PATCH_MAPPING[$patch_file]}"
+            messages+="\n❌ Patch $patch_file cannot be applied cleanly"
+            has_errors=true
             if [ "$IGNORE_PATCH_FAILURES" != "true" ]; then
+                send_telegram_message "📑 Patch Summary:$messages"
                 return 1
             fi
         fi
     done
+
+    # Send final summary message
+    if [ -n "$messages" ]; then
+        send_telegram_message "📑 Patch Summary:$messages"
+    fi
+
+    [ "$has_errors" = "true" ] && [ "$IGNORE_PATCH_FAILURES" != "true" ] && return 1
+    return 0
 }
 
 # Function to safely write output with multiline support
