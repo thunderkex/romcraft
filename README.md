@@ -20,10 +20,12 @@ An automated Android ROM building system featuring Telegram notifications, patch
 - [ROM Build Process](#-rom-build-process)
 - [Advanced Usage](#-advanced-usage)
 - [Performance Tips](#-performance-tips)
+- [Prerequisites](#-prerequisites)
 - [Configuration](#-configuration)
 - [Docker Support](#-docker-support)
 - [Contributing](#-contributing)
-- [Common Issues](#-common-issues)
+- [Troubleshooting](#-troubleshooting)
+- [License](#-license)
 
 ---
 
@@ -211,36 +213,34 @@ BUILD_FLAGS=(
 
 ## 📋 Prerequisites
 
-- Linux build environment
-- Minimum 16GB RAM (32GB+ recommended)
-- 200GB+ storage space
-- Git and essential build packages:
-  ```bash
-  # Essential packages
-  sudo apt install git-core gnupg flex bison build-essential zip curl zlib1g-dev \
-    gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev \
-    x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils \
-    xsltproc unzip jq
-  ```
-- Telegram Bot Token and Chat ID ([Setup Guide](#telegram-bot-setup))
-- For uploads: Platform-specific requirements ([Upload Setup](#upload-platform-setup))
+### Required for First Run
+```bash
+chmod +x setup_build_env.sh
+./setup_build_env.sh
+```
+
+### Additional Prerequisites
+- Telegram Bot Token ([Setup Guide](#telegram-bot-setup))
+- Platform-specific upload credentials
+- SSH key for SourceForge uploads
+- Stable Internet connection
 
 ## 🔧 Configuration
 
 Edit `config.conf` with your settings:
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | Required |
-| `TELEGRAM_CHAT_ID` | Your Telegram chat ID | Required |
-| `ROM_DIR` | Path to ROM source | Required |
-| `DEVICE_CODENAME` | Target device codename | Required |
-| `ENABLE_CCACHE` | Enable compiler cache | `true` |
-| `ENABLE_SYNC` | Sync source code | `true` |
-| `ENABLE_PATCHES` | Apply custom patches | `true` |
-| `ENABLE_UPLOAD` | Upload built ROM | `true` |
-| `BUILD_CLEAN` | Clean build | `false` |
-| `UPLOAD_TO` | Upload platform | Optional |
+| Option | Description | Required Value |
+|--------|-------------|----------------|
+| `TELEGRAM_BOT_TOKEN` | Telegram bot authentication token | Required |
+| `TELEGRAM_CHAT_ID` | Telegram chat identifier | Required |
+| `ROM_DIR` | Path to ROM source directory | Required |
+| `DEVICE_CODENAME` | Device codename for build | Required |
+| `ENABLE_CCACHE` | Enable compiler caching | `true` |
+| `ENABLE_SYNC` | Enable source code syncing | `true` |
+| `ENABLE_PATCHES` | Enable patch application | `true` |
+| `ENABLE_UPLOAD` | Enable ROM uploading | `true` |
+| `BUILD_CLEAN` | Perform clean build | `false` |
+| `UPLOAD_TO` | Target upload platform | Optional |
 
 ## 🐋 Docker Support
 
@@ -283,6 +283,25 @@ We welcome contributions! Please follow these steps:
 3. Get chat ID:
    - Send message to [@userinfobot](https://t.me/userinfobot)
    - Add ID to config: `TELEGRAM_CHAT_ID="your_id"`
+
+---
+
+## 🔍 Troubleshooting
+
+### Build Failures
+- Check available disk space
+- Verify RAM usage
+- Review build logs in `build/logs`
+
+### Upload Issues
+- Test network connectivity
+- Verify platform credentials
+- Check file permissions
+
+### Patch Application Errors
+- Ensure clean working directory
+- Check patch format compatibility
+- Verify target directories exist
 
 ---
 

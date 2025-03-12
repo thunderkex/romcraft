@@ -3,7 +3,7 @@
 # Source configuration file
 CONFIG_FILE="$(dirname "$0")/config.conf"
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: Config file not found!"
+    echo "Error: Config file not found! Please run setup_build_env.sh first."
     exit 1
 fi
 source "$CONFIG_FILE"
