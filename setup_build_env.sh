@@ -1,7 +1,17 @@
 #!/bin/bash
 
+# Validate shebang
+if [ "$(readlink -f /bin/sh)" != "$(readlink -f /bin/bash)" ]; then
+    echo -e "${RED}Error: This script requires bash as the default shell.${NC}"
+    echo -e "Please run: sudo dpkg-reconfigure dash"
+    echo -e "And select 'No' to use bash instead of dash."
+    exit 1
+fi
+
 LATEST_MAKE_VERSION="4.4"
 CCACHE_SIZE="50G"
+CONFIG_FILE="$(dirname "$0")/config.conf"
+ROM_DIR="${ROM_DIR:-$HOME/rom}"
 
 # Error handling
 set -euo pipefail
@@ -55,7 +65,14 @@ elif (( $(echo "$UBUNTU_VERSION >= 20.04" | bc -l) )); then
 fi
 
 # Install packages
-sudo apt-fast install -y $PACKAGES
+echo -e "${GREEN}Installing packages...${NC}"
+if ! sudo apt-fast install -y $PACKAGES; then
+    echo -e "${RED}Failed to install packages. Retrying with apt...${NC}"
+    if ! sudo apt-get install -y $PACKAGES; then
+        echo -e "${RED}Package installation failed. Please check your internet connection and try again.${NC}"
+        exit 1
+    fi
+fi
 
 # Install git-lfs
 if ! command -v git-lfs &> /dev/null; then
@@ -129,6 +146,20 @@ echo -e "${GREEN}Creating build directory...${NC}"
 [ -z "${ROM_DIR:-}" ] && ROM_DIR="$HOME/rom"
 mkdir -p "$ROM_DIR"
 
+# Backup existing config
+if [ -f "$CONFIG_FILE" ]; then
+    echo -e "${GREEN}Backing up existing config...${NC}"
+    cp "$CONFIG_FILE" "${CONFIG_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+fi
+
+# Validate ROM_DIR
+if [ ! -d "$ROM_DIR" ]; then
+    if ! mkdir -p "$ROM_DIR"; then
+        echo -e "${RED}Failed to create ROM directory at $ROM_DIR${NC}"
+        exit 1
+    fi
+fi
+
 # Save environment variables to config if it doesn't exist
 if [ ! -f "$CONFIG_FILE" ]; then
     echo -e "${GREEN}Creating initial config file...${NC}"
@@ -199,5 +230,8 @@ echo "5. RAM requirements: minimum 16GB recommended"
 echo "6. Configuration file: $CONFIG_FILE"
 echo "7. Build directory: $ROM_DIR"
 
-# Make script executable
-chmod +x "$(dirname "$0")/build_rom.sh"
+# Make build script executable if it exists
+BUILD_SCRIPT="$(dirname "$0")/build_rom.sh"
+if [ -f "$BUILD_SCRIPT" ]; then
+    chmod +x "$BUILD_SCRIPT"
+fi
