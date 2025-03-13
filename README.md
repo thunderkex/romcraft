@@ -160,19 +160,35 @@ UPLOAD_TO="platform_name"
 Example of real-time build status display:
 
 ```
-🚀 ROM Build Process
-⏱️ Started: 14:30:45
-⌛ Runtime: 0h:15m:30s
-📱 Device: example_device
+🛠️ ROMCRAFT Build Monitor
+━━━━━━━━━━━━━━━━━━━━━━
 
-📋 Build Status:
-• ✅ Setup
-• ✅ Source Sync
-• 🔄 Patches
-• ⏳ Build
-• ⏳ Upload
+📱 ROM Build Status
+• Device: Pixel 4a
+• Type: userdebug
+• Target: aosp
 
-📝 Current: Applying patch 3/10...
+⏰ Timing
+• Started: 14:30:00
+• Runtime: 01h:45m:30s
+
+💻 System Status
+• CPU: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz (8 cores)
+• RAM: 32G (16G free, 50% used)
+• Swap: 8G
+• Storage: 1T (500G free, 50% used)
+
+📊 Build Progress
+⏳ Source Sync
+✅ Patches
+⏳ Build
+❌ Upload
+
+━━━━━━━━━━━━━━━━━━━━━━
+🏗️ ROM Build In Progress
+❌ Errors: 0
+
+📝 Recent output:
 ```
 
 The build process display provides real-time information about:

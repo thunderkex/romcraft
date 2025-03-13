@@ -701,21 +701,90 @@ send_keyboard_message() {
         -d "parse_mode=HTML"
 }
 
+# Helper function to build status text
+build_status_text() {
+    local current_time=${1:-$(date +%s)}
+    local elapsed=$((current_time - BUILD_START_TIME))
+    
+    # Get system info with error handling
+    local sys_info=(
+        "$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)"
+        "$(nproc --all)"
+        "$(free -h | awk '/^Mem:/ {print $2}')"
+        "$(free -h | awk '/^Mem:/ {print $4}')" 
+        "$(free -h | awk '/^Swap:/ {print $2}')"
+        "$(df -h / | awk 'NR==2 {print $2}')"
+        "$(df -h / | awk 'NR==2 {print $4}')"
+    )
+
+    # Format elapsed time nicely
+    local runtime=$(printf '%02dh:%02dm:%02ds' $((elapsed/3600)) $((elapsed%3600/60)) $((elapsed%60)))
+    
+    # Build status message with error handling for system info
+    local cpu_info="${sys_info[0]:-Unknown CPU}"
+    local cpu_cores="${sys_info[1]:-0}"
+    local ram_total="${sys_info[2]:-Unknown}"
+    local ram_free="${sys_info[3]:-Unknown}"
+    local swap_total="${sys_info[4]:-Unknown}"
+    local storage_total="${sys_info[5]:-Unknown}"
+    local storage_free="${sys_info[6]:-Unknown}"
+
+    # Calculate RAM and storage usage percentages
+    local ram_usage=$(free | awk '/^Mem:/ {printf "%.1f", 100*$3/$2}')
+    local storage_usage=$(df / | awk 'NR==2 {printf "%.1f", 100*$3/$2}')
+
+    STATUS_TEXT="
+🛠️ ROMCRAFT Build Monitor
+━━━━━━━━━━━━━━━━━━━━━━
+
+📱 ROM Build Status
+• Device: ${DEVICE_CODENAME}
+• Type: ${BUILD_TYPE}
+• Target: ${BUILD_TARGET}
+
+⏰ Timing
+• Started: $(date -d @$BUILD_START_TIME +'%H:%M:%S')
+• Runtime: ${runtime}
+
+💻 System Status
+• CPU: ${cpu_info} (${cpu_cores} cores)
+• RAM: ${ram_total} (${ram_free} free, ${ram_usage}% used)
+• Swap: ${swap_total}
+• Storage: ${storage_total} (${storage_free} free, ${storage_usage}% used)
+
+📊 Build Progress"
+
+    # Add stage status with timestamps
+    for stage in "${STAGES[@]}"; do
+        local stage_icon="${STAGE_STATUS[$stage]:-⏳}"
+        local stage_time=""
+        
+        # Check if stage is enabled based on configuration
+        case "$stage" in
+            "Source Sync")
+                [ "$ENABLE_SYNC" != "true" ] && stage_icon="❌"
+                ;;
+            "Patches") 
+                [ "$ENABLE_PATCHES" != "true" ] && stage_icon="❌"
+                ;;
+            "Upload")
+                [ "$ENABLE_UPLOAD" != "true" ] && stage_icon="❌"
+                ;;
+        esac
+        
+        STATUS_TEXT+="\n${stage_icon} ${stage}"
+    done
+
+    # Add error count if any
+    [ $ERROR_COUNT -gt 0 ] && STATUS_TEXT+="\n\n⚠️ Errors: $ERROR_COUNT"
+}
+
 # Function to update build status message with build monitoring
 update_status() {
     local message="$1"
     local status="${2:-🔄}"
     local build_pid="${3:-}"
     local log_file="${4:-}"
-    local current_time=$(date +%s)
-    local elapsed=$((current_time - BUILD_START_TIME))
-    
-    # Update status text
-    STATUS_TEXT="🚀 ROM Build Process\n"
-    STATUS_TEXT+="⏱️ Started: $(date -d @$BUILD_START_TIME +'%H:%M:%S')\n"
-    STATUS_TEXT+="⌛ Runtime: $(printf '%dh:%dm:%ds' $((elapsed/3600)) $((elapsed%3600/60)) $((elapsed%60)))\n"
-    STATUS_TEXT+="📱 Device: $DEVICE_CODENAME\n\n"
-    STATUS_TEXT+="📋 Build Status:\n"
     
     # Update stage status
     case "$status" in
@@ -724,26 +793,18 @@ update_status() {
         "🔄") STAGE_STATUS["$CURRENT_STAGE"]="🔄";;
     esac
     
-    # Add all stages to status message
-    for stage in "${STAGES[@]}"; do
-        STATUS_TEXT+="• ${STAGE_STATUS[$stage]:-⏳} $stage\n"
-    done
-    
     # Monitor build process if pid and log file provided
     if [ -n "$build_pid" ] && [ -n "$log_file" ]; then
         while kill -0 "$build_pid" 2>/dev/null; do
             if [ -f "$log_file" ]; then
                 current_time=$(date +%s)
-                elapsed=$((current_time - BUILD_START_TIME))
                 last_lines=$(tail -n 3 "$log_file" 2>&1 | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
                 
-                # Update status text with build progress
-                local build_status="🏗️ ROM Build In Progress\n"
-                build_status+="⏱️ Runtime: $(printf '%dh:%dm:%ds' $((elapsed/3600)) $((elapsed%3600/60)) $((elapsed%60)))\n"
-                build_status+="❌ Errors: $ERROR_COUNT\n"
-                build_status+="\n📝 Recent output:\n<pre>$last_lines</pre>"
-                
-                STATUS_TEXT+="\n\n$build_status"
+                # Build status message
+                build_status_text "$current_time"
+                STATUS_TEXT+="\n🏗️ ROM Build In Progress\n"
+                STATUS_TEXT+="❌ Errors: $ERROR_COUNT\n"
+                STATUS_TEXT+="\n📝 Recent output:\n<pre>$last_lines</pre>"
                 
                 # Try to edit message, on failure recreate it
                 if ! edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$STATUS_TEXT")"; then
@@ -754,7 +815,7 @@ update_status() {
                     STATUS_MESSAGE_ID=$(echo "$new_response" | jq -r '.result.message_id')
                 fi
                 
-                # Check for errors without sending additional messages
+                # Check for errors
                 if echo "$last_lines" | grep -qiE 'error:|failed:|fatal:'; then
                     ERROR_COUNT=$((ERROR_COUNT + 1))
                 fi
@@ -762,9 +823,9 @@ update_status() {
             sleep 15
         done
     else
-        # Add current operation details for non-build messages
+        # Build basic status message
+        build_status_text
         [ -n "$message" ] && STATUS_TEXT+="\n📝 Current: $message"
-        # Add error count if any
         [ $ERROR_COUNT -gt 0 ] && STATUS_TEXT+="\n❌ Errors: $ERROR_COUNT"
         edit_telegram_message "$STATUS_MESSAGE_ID" "$(urlencode "$STATUS_TEXT")"
     fi
@@ -860,7 +921,6 @@ main() {
         response=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" \
             -d "offset=-1" \
             -d "timeout=1")
-        
         if echo "$response" | grep -q "callback_data"; then
             if echo "$response" | grep -q '"callback_data":"shutdown"'; then
                 send_telegram_message "🔌 Initiating server shutdown..."
@@ -884,7 +944,7 @@ test_uploads() {
     if [ ! -f "$test_file" ]; then
         dd if=/dev/zero of="$test_file" bs=1M count=100 >/dev/null 2>&1
     fi
-
+    
     echo "🧪 Starting upload tests..."
     
     # Clear previous download links
